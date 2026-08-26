@@ -1,10 +1,19 @@
 type ReleaseChannel = "stable" | "canary";
 
+type RoutingMode =
+  | "canary"
+  | "promote"
+  | "rollback";
+
 const gatewayUrl =
   process.env.GATEWAY_URL ?? "http://127.0.0.1:8080";
 
 const sampleSize = readSampleSize(
   process.env.ROUTING_SAMPLE_SIZE,
+);
+
+const expectedRoutingMode = readRoutingMode(
+  process.env.EXPECTED_ROUTING_MODE,
 );
 
 function readSampleSize(value: string | undefined): number {
@@ -17,6 +26,24 @@ function readSampleSize(value: string | undefined): number {
   }
 
   return sampleSize;
+}
+
+function readRoutingMode(
+  value: string | undefined,
+): RoutingMode {
+  const routingMode = value?.trim() || "canary";
+
+  if (
+    routingMode !== "canary"
+    && routingMode !== "promote"
+    && routingMode !== "rollback"
+  ) {
+    throw new Error(
+      "EXPECTED_ROUTING_MODE must be canary, promote, or rollback.",
+    );
+  }
+
+  return routingMode;
 }
 
 async function requestJson(pathname: string): Promise<unknown> {
@@ -81,6 +108,51 @@ function readChannel(payload: unknown): ReleaseChannel {
   return release.channel;
 }
 
+function verifyRouting(
+  routingMode: RoutingMode,
+  counts: Record<ReleaseChannel, number>,
+  canaryShare: number,
+): void {
+  if (routingMode === "canary") {
+    if (counts.stable === 0 || counts.canary === 0) {
+      throw new Error(
+        "Both stable and canary must receive traffic.",
+      );
+    }
+
+    if (canaryShare < 0.05 || canaryShare > 0.2) {
+      throw new Error(
+        `Canary traffic share is outside the expected range: ${
+          canaryShare * 100
+        }%.`,
+      );
+    }
+
+    return;
+  }
+
+  const expectedChannel: ReleaseChannel =
+    routingMode === "promote"
+      ? "canary"
+      : "stable";
+
+  const unexpectedChannel: ReleaseChannel =
+    expectedChannel === "canary"
+      ? "stable"
+      : "canary";
+
+  if (
+    counts[expectedChannel] !== sampleSize
+    || counts[unexpectedChannel] !== 0
+  ) {
+    throw new Error(
+      `${routingMode} mode expected all traffic to reach ${
+        expectedChannel
+      }.`,
+    );
+  }
+}
+
 verifyHealth(await requestJson("/health"));
 
 const counts: Record<ReleaseChannel, number> = {
@@ -100,23 +172,18 @@ const canaryShare = counts.canary / sampleSize;
 
 console.log(JSON.stringify({
   gatewayUrl,
+  expectedRoutingMode,
   sampleSize,
   counts,
   canaryPercentage: canaryShare * 100,
 }, null, 2));
 
-if (counts.stable === 0 || counts.canary === 0) {
-  throw new Error(
-    "Both stable and canary must receive traffic.",
-  );
-}
+verifyRouting(
+  expectedRoutingMode,
+  counts,
+  canaryShare,
+);
 
-if (canaryShare < 0.05 || canaryShare > 0.2) {
-  throw new Error(
-    `Canary traffic share is outside the expected range: ${
-      canaryShare * 100
-    }%.`,
-  );
-}
-
-console.log("Routing verification passed.");
+console.log(
+  `Routing verification passed for ${expectedRoutingMode} mode.`,
+);
