@@ -4,7 +4,12 @@
   "private": true,
   "description": "A portfolio project demonstrating CI/CD, Docker, and automated canary deployments.",
   "type": "module",
-  "scripts": {},
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node --enable-source-maps dist/server.js"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "tsx": "^4.23.12",
