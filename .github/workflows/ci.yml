@@ -91,3 +91,32 @@ jobs:
             --build-arg "COMMIT_SHA=${{ github.sha }}" \
             --tag "autonomous-canary:${{ github.sha }}" \
             .
+
+      - name: Verify container metadata
+        shell: bash
+        env:
+          IMAGE_TAG: autonomous-canary:${{ github.sha }}
+          EXPECTED_VERSION: ${{ needs.quality.outputs.app_version }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          actual_version="$(
+            docker image inspect "${IMAGE_TAG}" \
+              --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
+          )"
+
+          actual_revision="$(
+            docker image inspect "${IMAGE_TAG}" \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+          )"
+
+          if [[ "${actual_version}" != "${EXPECTED_VERSION}" ]]; then
+            echo "Version mismatch: expected ${EXPECTED_VERSION}, received ${actual_version}." >&2
+            exit 1
+          fi
+
+          if [[ "${actual_revision}" != "${EXPECTED_REVISION}" ]]; then
+            echo "Revision mismatch: expected ${EXPECTED_REVISION}, received ${actual_revision}." >&2
+            exit 1
+          fi
+
+          echo "Verified version ${actual_version} at revision ${actual_revision}."
