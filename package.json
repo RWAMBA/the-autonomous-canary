@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --project tsconfig.test.json",
     "test": "tsx --test test/*.test.ts",
+    "verify:routing": "tsx scripts/verify-routing.ts",
     "build": "tsc --project tsconfig.json",
     "start": "node --enable-source-maps dist/server.js"
   },

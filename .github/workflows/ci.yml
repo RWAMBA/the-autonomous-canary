@@ -70,7 +70,7 @@ jobs:
         run: npm run build
 
   container:
-    name: Build container image
+    name: Build and verify container stack
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -81,6 +81,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Check Dockerfile
         run: docker build --check .
 
@@ -90,6 +99,7 @@ jobs:
             --build-arg "APP_VERSION=${{ needs.quality.outputs.app_version }}" \
             --build-arg "COMMIT_SHA=${{ github.sha }}" \
             --tag "autonomous-canary:${{ github.sha }}" \
+            --tag autonomous-canary:compose \
             .
 
       - name: Verify container metadata
@@ -120,3 +130,24 @@ jobs:
           fi
 
           echo "Verified version ${actual_version} at revision ${actual_revision}."
+
+      - name: Start canary stack
+        run: |
+          docker compose up \
+            --detach \
+            --no-build \
+            --wait \
+            --wait-timeout 60
+
+      - name: Verify weighted routing
+        run: npm run verify:routing
+
+      - name: Display stack diagnostics
+        if: ${{ always() }}
+        run: |
+          docker compose ps --all
+          docker compose logs --no-color
+
+      - name: Remove canary stack
+        if: ${{ always() }}
+        run: docker compose down --timeout 10
