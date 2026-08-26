@@ -24,6 +24,8 @@ jobs:
     name: Type-check, test, and build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      app_version: ${{ steps.package_metadata.outputs.app_version }}
 
     steps:
       - name: Check out repository
@@ -41,6 +43,19 @@ jobs:
         run: |
           node --version
           npm --version
+
+      - name: Read application version
+        id: package_metadata
+        shell: bash
+        run: |
+          app_version="$(node --print "require('./package.json').version")"
+
+          if [[ -z "${app_version}" ]]; then
+            echo "package.json version is empty." >&2
+            exit 1
+          fi
+
+          echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install dependencies
         run: npm ci
@@ -70,4 +85,9 @@ jobs:
         run: docker build --check .
 
       - name: Build container image
-        run: docker build --tag "autonomous-canary:${{ github.sha }}" .
+        run: |
+          docker build \
+            --build-arg "APP_VERSION=${{ needs.quality.outputs.app_version }}" \
+            --build-arg "COMMIT_SHA=${{ github.sha }}" \
+            --tag "autonomous-canary:${{ github.sha }}" \
+            .
