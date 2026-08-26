@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "typecheck": "tsc --project tsconfig.test.json",
+    "test": "tsx --test test/*.test.ts",
+    "build": "tsc --project tsconfig.json",
     "start": "node --enable-source-maps dist/server.js"
   },
   "devDependencies": {
