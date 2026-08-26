@@ -1,3 +1,6 @@
+ARG APP_VERSION=development
+ARG COMMIT_SHA=development
+
 FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
 
 ARG NPM_VERSION=12.0.2
@@ -22,8 +25,20 @@ RUN npm prune --omit=dev
 
 FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime
 
+ARG APP_VERSION
+ARG COMMIT_SHA
+
+LABEL org.opencontainers.image.title="The Autonomous Canary" \
+      org.opencontainers.image.description="A portfolio project demonstrating CI/CD, Docker, and automated canary deployments." \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${COMMIT_SHA}" \
+      org.opencontainers.image.source="https://github.com/RWAMBA/the-autonomous-canary"
+
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV APP_VERSION="${APP_VERSION}"
+ENV COMMIT_SHA="${COMMIT_SHA}"
+ENV RELEASE_CHANNEL=local
 
 WORKDIR /app
 

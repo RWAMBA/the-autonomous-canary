@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { after, before, test } from "node:test";
 
-import { requestHandler } from "../src/app.js";
+import { createRequestHandler } from "../src/app.js";
 
-const server = createServer(requestHandler);
+const server = createServer(
+  createRequestHandler({
+    channel: "canary",
+    commitSha: "abc123",
+    version: "1.2.3",
+  }),
+);
+
 let baseUrl = "";
 
 before(async () => {
@@ -46,6 +53,20 @@ test("GET /health returns the service health", async () => {
   assert.deepEqual(await response.json(), {
     service: "the-autonomous-canary",
     status: "ok",
+  });
+});
+
+test("GET /version returns the release identity", async () => {
+  const response = await fetch(`${baseUrl}/version`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    service: "the-autonomous-canary",
+    release: {
+      channel: "canary",
+      commitSha: "abc123",
+      version: "1.2.3",
+    },
   });
 });
 
