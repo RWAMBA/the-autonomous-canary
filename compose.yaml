@@ -1,0 +1,23 @@
+name: autonomous-canary
+
+services:
+  stable:
+    image: autonomous-canary:compose
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-development}
+        COMMIT_SHA: ${COMMIT_SHA:-local-compose}
+    environment:
+      RELEASE_CHANNEL: stable
+    ports:
+      - "127.0.0.1:3001:3000"
+    restart: unless-stopped
+
+  canary:
+    image: autonomous-canary:compose
+    environment:
+      RELEASE_CHANNEL: canary
+    ports:
+      - "127.0.0.1:3002:3000"
+    restart: unless-stopped
