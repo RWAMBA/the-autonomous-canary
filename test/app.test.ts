@@ -3,13 +3,17 @@ import { createServer } from "node:http";
 import { after, before, test } from "node:test";
 
 import { createRequestHandler } from "../src/app.js";
+import { createFailureSimulator } from "../src/failure-simulator.js";
 
 const server = createServer(
-  createRequestHandler({
-    channel: "canary",
-    commitSha: "abc123",
-    version: "1.2.3",
-  }),
+  createRequestHandler(
+    {
+      channel: "canary",
+      commitSha: "abc123",
+      version: "1.2.3",
+    },
+    createFailureSimulator(2),
+  ),
 );
 
 let baseUrl = "";
@@ -68,6 +72,44 @@ test("GET /version returns the release identity", async () => {
       version: "1.2.3",
     },
   });
+});
+
+test("GET /work exposes deterministic workload outcomes", async () => {
+  const successfulResponse = await fetch(
+    `${baseUrl}/work`,
+  );
+
+  assert.equal(successfulResponse.status, 200);
+  assert.deepEqual(await successfulResponse.json(), {
+    service: "the-autonomous-canary",
+    release: {
+      channel: "canary",
+      commitSha: "abc123",
+      version: "1.2.3",
+    },
+    result: "ok",
+  });
+
+  const failedResponse = await fetch(
+    `${baseUrl}/work`,
+  );
+
+  assert.equal(failedResponse.status, 503);
+  assert.deepEqual(await failedResponse.json(), {
+    service: "the-autonomous-canary",
+    release: {
+      channel: "canary",
+      commitSha: "abc123",
+      version: "1.2.3",
+    },
+    error: "Simulated workload failure",
+  });
+
+  const healthResponse = await fetch(
+    `${baseUrl}/health`,
+  );
+
+  assert.equal(healthResponse.status, 200);
 });
 
 test("an unknown route returns 404", async () => {
