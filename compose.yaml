@@ -10,6 +10,7 @@ services:
         COMMIT_SHA: ${COMMIT_SHA:-local-compose}
     environment:
       RELEASE_CHANNEL: stable
+      SIMULATED_FAILURE_EVERY: "0"
     expose:
       - "3000"
     restart: unless-stopped
@@ -18,6 +19,7 @@ services:
     image: autonomous-canary:compose
     environment:
       RELEASE_CHANNEL: canary
+      SIMULATED_FAILURE_EVERY: "${CANARY_FAILURE_EVERY:-0}"
     expose:
       - "3000"
     restart: unless-stopped
