@@ -9,6 +9,7 @@
     "typecheck": "tsc --project tsconfig.test.json",
     "test": "tsx --test test/*.test.ts",
     "verify:routing": "tsx scripts/verify-routing.ts",
+    "evaluate:canary": "tsx scripts/evaluate-canary.ts",
     "build": "tsc --project tsconfig.json",
     "start": "node --enable-source-maps dist/server.js"
   },

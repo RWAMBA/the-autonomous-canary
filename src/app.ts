@@ -1,5 +1,13 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type {
+  IncomingMessage,
+  ServerResponse,
+} from "node:http";
 
+import {
+  createFailureSimulator,
+  loadFailureSimulator,
+  type FailureSimulator,
+} from "./failure-simulator.js";
 import {
   loadReleaseMetadata,
   type ReleaseMetadata,
@@ -20,6 +28,8 @@ function sendJson(
 
 export function createRequestHandler(
   release: ReleaseMetadata,
+  failureSimulator: FailureSimulator =
+    createFailureSimulator(0),
 ): (
   request: IncomingMessage,
   response: ServerResponse,
@@ -33,7 +43,10 @@ export function createRequestHandler(
       "http://localhost",
     ).pathname;
 
-    if (request.method === "GET" && pathname === "/health") {
+    if (
+      request.method === "GET"
+      && pathname === "/health"
+    ) {
       sendJson(response, 200, {
         service: serviceName,
         status: "ok",
@@ -41,10 +54,34 @@ export function createRequestHandler(
       return;
     }
 
-    if (request.method === "GET" && pathname === "/version") {
+    if (
+      request.method === "GET"
+      && pathname === "/version"
+    ) {
       sendJson(response, 200, {
         service: serviceName,
         release,
+      });
+      return;
+    }
+
+    if (
+      request.method === "GET"
+      && pathname === "/work"
+    ) {
+      if (failureSimulator.shouldFail()) {
+        sendJson(response, 503, {
+          service: serviceName,
+          release,
+          error: "Simulated workload failure",
+        });
+        return;
+      }
+
+      sendJson(response, 200, {
+        service: serviceName,
+        release,
+        result: "ok",
       });
       return;
     }
@@ -57,4 +94,5 @@ export function createRequestHandler(
 
 export const requestHandler = createRequestHandler(
   loadReleaseMetadata(),
+  loadFailureSimulator(),
 );
