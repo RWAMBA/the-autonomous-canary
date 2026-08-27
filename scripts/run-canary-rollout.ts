@@ -1,10 +1,18 @@
 import {
+  execFileSync,
+} from "node:child_process";
+
+import {
   observeCanary,
 } from "../src/canary-observer.js";
 import type {
   CanaryDecision,
   CanaryPolicy,
 } from "../src/canary-policy.js";
+import {
+  routingModeForDecision,
+  type RoutingMode,
+} from "../src/routing-mode.js";
 
 function readPositiveInteger(
   name: string,
@@ -70,6 +78,46 @@ function readExpectedDecision(
   return normalized;
 }
 
+function startBackends(): void {
+  execFileSync(
+    "docker",
+    [
+      "compose",
+      "up",
+      "--detach",
+      "--no-build",
+      "--wait",
+      "--wait-timeout",
+      "60",
+      "stable",
+      "canary",
+    ],
+    {
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
+}
+
+function applyRouting(
+  routingMode: RoutingMode,
+): void {
+  execFileSync(
+    "npm",
+    [
+      "run",
+      "routing:apply",
+    ],
+    {
+      env: {
+        ...process.env,
+        ROUTING_MODE: routingMode,
+      },
+      stdio: "inherit",
+    },
+  );
+}
+
 const gatewayUrl = new URL(
   process.env.GATEWAY_URL
     ?? "http://127.0.0.1:8080",
@@ -108,20 +156,37 @@ const expectedDecision = readExpectedDecision(
   process.env.EXPECTED_DECISION,
 );
 
-const observation = await observeCanary({
-  policy,
-  maximumTotalRequests,
-  requestWorkload: async () => {
-    const response = await fetch(
-      new URL("/work", gatewayUrl),
-    );
+startBackends();
+applyRouting("canary");
 
-    return {
-      ok: response.ok,
-      payload: await response.json(),
-    };
-  },
-});
+const observation = await (async () => {
+  try {
+    return await observeCanary({
+      policy,
+      maximumTotalRequests,
+      requestWorkload: async () => {
+        const response = await fetch(
+          new URL("/work", gatewayUrl),
+        );
+
+        return {
+          ok: response.ok,
+          payload: await response.json(),
+        };
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Canary observation failed. Applying rollback.",
+    );
+    applyRouting("rollback");
+    throw error;
+  }
+})();
+
+const routingMode = routingModeForDecision(
+  observation.evaluation.decision,
+);
 
 console.log(JSON.stringify({
   gatewayUrl: gatewayUrl.toString(),
@@ -129,7 +194,21 @@ console.log(JSON.stringify({
   observations: observation.observations,
   policy,
   evaluation: observation.evaluation,
+  routingMode,
 }, null, 2));
+
+try {
+  applyRouting(routingMode);
+} catch (error) {
+  if (routingMode !== "rollback") {
+    console.error(
+      "Routing action failed. Applying rollback.",
+    );
+    applyRouting("rollback");
+  }
+
+  throw error;
+}
 
 if (
   expectedDecision !== undefined
@@ -143,19 +222,8 @@ if (
   );
 }
 
-if (
-  expectedDecision === undefined
-  && observation.evaluation.decision !== "promote"
-) {
-  throw new Error(
-    `Canary deployment blocked: ${
-      observation.evaluation.reason
-    }.`,
-  );
-}
-
 console.log(
-  `Canary decision verified: ${
+  `Autonomous rollout completed with decision ${
     observation.evaluation.decision
-  }.`,
+  } and routing mode ${routingMode}.`,
 );

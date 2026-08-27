@@ -32,7 +32,18 @@ services:
       canary:
         condition: service_healthy
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - type: bind
+        source: ./infra/nginx/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./infra/nginx/routes/${ROUTING_MODE:-canary}.conf
+        target: /etc/nginx/upstream.conf
+        read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

@@ -11,7 +11,9 @@
     "verify:routing": "tsx scripts/verify-routing.ts",
     "evaluate:canary": "tsx scripts/evaluate-canary.ts",
     "build": "tsc --project tsconfig.json",
-    "start": "node --enable-source-maps dist/server.js"
+    "start": "node --enable-source-maps dist/server.js",
+    "routing:apply": "tsx scripts/apply-routing.ts",
+    "rollout:canary": "tsx scripts/run-canary-rollout.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
