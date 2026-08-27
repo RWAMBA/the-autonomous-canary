@@ -28,6 +28,21 @@ test("release metadata normalizes deployment values", () => {
   });
 });
 
+test("release metadata prefers the Render deployment commit", () => {
+  const metadata = loadReleaseMetadata({
+    APP_VERSION: "0.1.0",
+    COMMIT_SHA: "build-time-commit",
+    RELEASE_CHANNEL: "stable",
+    RENDER_GIT_COMMIT: "render-deployed-commit",
+  });
+
+  assert.deepEqual(metadata, {
+    channel: "stable",
+    commitSha: "render-deployed-commit",
+    version: "0.1.0",
+  });
+});
+
 test("release metadata rejects an invalid channel", () => {
   assert.throws(
     () => loadReleaseMetadata({

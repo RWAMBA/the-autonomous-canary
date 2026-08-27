@@ -196,3 +196,63 @@ jobs:
       - name: Remove canary stack
         if: ${{ always() }}
         run: docker compose down --timeout 10
+
+  deploy:
+    name: Deploy to Render
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs:
+      - quality
+      - container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://the-autonomous-canary.onrender.com
+
+    steps:
+      - name: Trigger Render deployment
+        shell: bash
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          curl \
+            --silent \
+            --show-error \
+            --fail-with-body \
+            --request POST \
+            "${RENDER_DEPLOY_HOOK_URL}&ref=${GITHUB_SHA}"
+
+      - name: Verify deployed revision
+        shell: bash
+        env:
+          DEPLOYMENT_URL: https://the-autonomous-canary.onrender.com
+          EXPECTED_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          for attempt in {1..40}; do
+            actual_commit_sha="$(
+              curl \
+                --silent \
+                --show-error \
+                --fail \
+                "${DEPLOYMENT_URL}/version" |
+                jq --raw-output '.release.commitSha // empty'
+            )" || actual_commit_sha=""
+
+            if [[ "${actual_commit_sha}" == "${EXPECTED_COMMIT_SHA}" ]]; then
+              curl \
+                --silent \
+                --show-error \
+                --fail-with-body \
+                "${DEPLOYMENT_URL}/health"
+
+              echo
+              echo "Verified deployed revision ${actual_commit_sha}."
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}: waiting for ${EXPECTED_COMMIT_SHA}; received ${actual_commit_sha:-unavailable}."
+            sleep 15
+          done
+
+          echo "Timed out waiting for deployed revision ${EXPECTED_COMMIT_SHA}." >&2
+          exit 1

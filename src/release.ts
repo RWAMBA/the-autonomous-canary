@@ -40,7 +40,10 @@ export function loadReleaseMetadata(
 ): ReleaseMetadata {
   return Object.freeze({
     channel: readChannel(environment.RELEASE_CHANNEL),
-    commitSha: readValue(environment.COMMIT_SHA, "development"),
+    commitSha: readValue(
+      environment.RENDER_GIT_COMMIT,
+      readValue(environment.COMMIT_SHA, "development"),
+    ),
     version: readValue(environment.APP_VERSION, "development"),
   });
 }
