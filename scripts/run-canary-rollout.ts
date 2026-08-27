@@ -1,0 +1,229 @@
+import {
+  execFileSync,
+} from "node:child_process";
+
+import {
+  observeCanary,
+} from "../src/canary-observer.js";
+import type {
+  CanaryDecision,
+  CanaryPolicy,
+} from "../src/canary-policy.js";
+import {
+  routingModeForDecision,
+  type RoutingMode,
+} from "../src/routing-mode.js";
+
+function readPositiveInteger(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+): number {
+  const parsedValue = Number(value ?? fallback);
+
+  if (
+    !Number.isInteger(parsedValue)
+    || parsedValue < 1
+  ) {
+    throw new Error(
+      `${name} must be a positive integer.`,
+    );
+  }
+
+  return parsedValue;
+}
+
+function readRate(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+): number {
+  const parsedValue = Number(value ?? fallback);
+
+  if (
+    !Number.isFinite(parsedValue)
+    || parsedValue < 0
+    || parsedValue > 1
+  ) {
+    throw new Error(
+      `${name} must be a number between 0 and 1.`,
+    );
+  }
+
+  return parsedValue;
+}
+
+function readExpectedDecision(
+  value: string | undefined,
+): CanaryDecision | undefined {
+  const normalized = value?.trim();
+
+  if (
+    normalized === undefined
+    || normalized.length === 0
+  ) {
+    return undefined;
+  }
+
+  if (
+    normalized !== "continue"
+    && normalized !== "promote"
+    && normalized !== "rollback"
+  ) {
+    throw new Error(
+      "EXPECTED_DECISION must be continue, promote, or rollback.",
+    );
+  }
+
+  return normalized;
+}
+
+function startBackends(): void {
+  execFileSync(
+    "docker",
+    [
+      "compose",
+      "up",
+      "--detach",
+      "--no-build",
+      "--wait",
+      "--wait-timeout",
+      "60",
+      "stable",
+      "canary",
+    ],
+    {
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
+}
+
+function applyRouting(
+  routingMode: RoutingMode,
+): void {
+  execFileSync(
+    "npm",
+    [
+      "run",
+      "routing:apply",
+    ],
+    {
+      env: {
+        ...process.env,
+        ROUTING_MODE: routingMode,
+      },
+      stdio: "inherit",
+    },
+  );
+}
+
+const gatewayUrl = new URL(
+  process.env.GATEWAY_URL
+    ?? "http://127.0.0.1:8080",
+);
+
+const policy: CanaryPolicy = {
+  minimumStableRequests: readPositiveInteger(
+    "MINIMUM_STABLE_REQUESTS",
+    process.env.MINIMUM_STABLE_REQUESTS,
+    100,
+  ),
+  minimumCanaryRequests: readPositiveInteger(
+    "MINIMUM_CANARY_REQUESTS",
+    process.env.MINIMUM_CANARY_REQUESTS,
+    20,
+  ),
+  maximumCanaryFailureRate: readRate(
+    "MAXIMUM_CANARY_FAILURE_RATE",
+    process.env.MAXIMUM_CANARY_FAILURE_RATE,
+    0.05,
+  ),
+  maximumFailureRateIncrease: readRate(
+    "MAXIMUM_FAILURE_RATE_INCREASE",
+    process.env.MAXIMUM_FAILURE_RATE_INCREASE,
+    0.02,
+  ),
+};
+
+const maximumTotalRequests = readPositiveInteger(
+  "MAXIMUM_TOTAL_REQUESTS",
+  process.env.MAXIMUM_TOTAL_REQUESTS,
+  500,
+);
+
+const expectedDecision = readExpectedDecision(
+  process.env.EXPECTED_DECISION,
+);
+
+startBackends();
+applyRouting("canary");
+
+const observation = await (async () => {
+  try {
+    return await observeCanary({
+      policy,
+      maximumTotalRequests,
+      requestWorkload: async () => {
+        const response = await fetch(
+          new URL("/work", gatewayUrl),
+        );
+
+        return {
+          ok: response.ok,
+          payload: await response.json(),
+        };
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Canary observation failed. Applying rollback.",
+    );
+    applyRouting("rollback");
+    throw error;
+  }
+})();
+
+const routingMode = routingModeForDecision(
+  observation.evaluation.decision,
+);
+
+console.log(JSON.stringify({
+  gatewayUrl: gatewayUrl.toString(),
+  totalRequests: observation.totalRequests,
+  observations: observation.observations,
+  policy,
+  evaluation: observation.evaluation,
+  routingMode,
+}, null, 2));
+
+try {
+  applyRouting(routingMode);
+} catch (error) {
+  if (routingMode !== "rollback") {
+    console.error(
+      "Routing action failed. Applying rollback.",
+    );
+    applyRouting("rollback");
+  }
+
+  throw error;
+}
+
+if (
+  expectedDecision !== undefined
+  && observation.evaluation.decision
+    !== expectedDecision
+) {
+  throw new Error(
+    `Expected ${expectedDecision}, received ${
+      observation.evaluation.decision
+    }.`,
+  );
+}
+
+console.log(
+  `Autonomous rollout completed with decision ${
+    observation.evaluation.decision
+  } and routing mode ${routingMode}.`,
+);
