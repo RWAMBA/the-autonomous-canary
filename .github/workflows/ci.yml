@@ -142,34 +142,22 @@ jobs:
       - name: Verify weighted routing
         run: npm run verify:routing
 
-      - name: Verify healthy canary promotion
-        run: npm run evaluate:canary
+      - name: Verify autonomous promotion
+        env:
+          EXPECTED_DECISION: promote
+        run: npm run rollout:canary
 
-      - name: Inject canary failures
+      - name: Verify autonomous rollback
         env:
           CANARY_FAILURE_EVERY: "3"
-        run: |
-          docker compose up \
-            --detach \
-            --no-build \
-            --force-recreate \
-            --wait \
-            --wait-timeout 60
-
-      - name: Verify unsafe canary rollback
-        env:
           EXPECTED_DECISION: rollback
-        run: npm run evaluate:canary
+        run: npm run rollout:canary
 
-      - name: Verify unsafe canary blocks deployment
-        shell: bash
-        run: |
-          if npm run evaluate:canary; then
-            echo "Unsafe canary was allowed." >&2
-            exit 1
-          fi
-
-          echo "Unsafe canary correctly blocked deployment."
+      - name: Verify autonomous continuation
+        env:
+          MAXIMUM_TOTAL_REQUESTS: "10"
+          EXPECTED_DECISION: continue
+        run: npm run rollout:canary
 
       - name: Display stack diagnostics
         if: ${{ always() }}
