@@ -33,6 +33,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Scan dependencies and configuration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_INCLUDE_DEV_DEPS: "true"
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: "false"
+          format: table
+          exit-code: "1"
+          hide-progress: "true"
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -101,6 +116,19 @@ jobs:
             --tag "autonomous-canary:${{ github.sha }}" \
             --tag autonomous-canary:compose \
             .
+
+      - name: Scan container image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: autonomous-canary:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: "false"
+          format: table
+          exit-code: "1"
+          hide-progress: "true"
 
       - name: Verify container metadata
         shell: bash
