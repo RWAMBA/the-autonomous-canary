@@ -1,15 +1,10 @@
 import {
-  evaluateCanary,
-  type CanaryDecision,
-  type CanaryPolicy,
+  observeCanary,
+} from "../src/canary-observer.js";
+import type {
+  CanaryDecision,
+  CanaryPolicy,
 } from "../src/canary-policy.js";
-
-type ReleaseChannel = "stable" | "canary";
-
-interface MutableTrafficSample {
-  requests: number;
-  failures: number;
-}
 
 function readPositiveInteger(
   name: string,
@@ -75,43 +70,6 @@ function readExpectedDecision(
   return normalized;
 }
 
-function readReleaseChannel(
-  payload: unknown,
-): ReleaseChannel {
-  if (
-    typeof payload !== "object"
-    || payload === null
-    || !("release" in payload)
-  ) {
-    throw new Error(
-      "Workload response does not contain release metadata.",
-    );
-  }
-
-  const release = payload.release;
-
-  if (
-    typeof release !== "object"
-    || release === null
-    || !("channel" in release)
-  ) {
-    throw new Error(
-      "Workload response does not contain a release channel.",
-    );
-  }
-
-  if (
-    release.channel !== "stable"
-    && release.channel !== "canary"
-  ) {
-    throw new Error(
-      `Unexpected release channel: ${String(release.channel)}`,
-    );
-  }
-
-  return release.channel;
-}
-
 const gatewayUrl = new URL(
   process.env.GATEWAY_URL
     ?? "http://127.0.0.1:8080",
@@ -150,78 +108,54 @@ const expectedDecision = readExpectedDecision(
   process.env.EXPECTED_DECISION,
 );
 
-const observations: Record<
-  ReleaseChannel,
-  MutableTrafficSample
-> = {
-  stable: {
-    requests: 0,
-    failures: 0,
-  },
-  canary: {
-    requests: 0,
-    failures: 0,
-  },
-};
-
-let totalRequests = 0;
-
-while (
-  (
-    observations.stable.requests
-      < policy.minimumStableRequests
-    || observations.canary.requests
-      < policy.minimumCanaryRequests
-  )
-  && totalRequests < maximumTotalRequests
-) {
-  const response = await fetch(
-    new URL("/work", gatewayUrl),
-  );
-
-  const payload: unknown = await response.json();
-  const channel = readReleaseChannel(payload);
-
-  observations[channel].requests += 1;
-  totalRequests += 1;
-
-  if (!response.ok) {
-    observations[channel].failures += 1;
-  }
-}
-
-const evaluation = evaluateCanary(
-  observations.stable,
-  observations.canary,
+const observation = await observeCanary({
   policy,
-);
+  maximumTotalRequests,
+  requestWorkload: async () => {
+    const response = await fetch(
+      new URL("/work", gatewayUrl),
+    );
+
+    return {
+      ok: response.ok,
+      payload: await response.json(),
+    };
+  },
+});
 
 console.log(JSON.stringify({
   gatewayUrl: gatewayUrl.toString(),
-  totalRequests,
-  observations,
+  totalRequests: observation.totalRequests,
+  observations: observation.observations,
   policy,
-  evaluation,
+  evaluation: observation.evaluation,
 }, null, 2));
 
 if (
   expectedDecision !== undefined
-  && evaluation.decision !== expectedDecision
+  && observation.evaluation.decision
+    !== expectedDecision
 ) {
   throw new Error(
-    `Expected ${expectedDecision}, received ${evaluation.decision}.`,
+    `Expected ${expectedDecision}, received ${
+      observation.evaluation.decision
+    }.`,
   );
 }
 
 if (
   expectedDecision === undefined
-  && evaluation.decision !== "promote"
+  && observation.evaluation.decision !== "promote"
 ) {
   throw new Error(
-    `Canary deployment blocked: ${evaluation.reason}.`,
+    `Canary deployment blocked: ${
+      observation.evaluation.reason
+    }.`,
   );
 }
 
 console.log(
-  `Canary decision verified: ${evaluation.decision}.`,
+  `Canary decision verified: ${
+    observation.evaluation.decision
+  }.`,
 );
