@@ -9,6 +9,7 @@ services:
         APP_VERSION: ${APP_VERSION:-development}
         COMMIT_SHA: ${COMMIT_SHA:-local-compose}
     environment:
+      CANARYGUARD_API_KEY: "${CANARYGUARD_API_KEY:?CANARYGUARD_API_KEY must be set}"
       RELEASE_CHANNEL: stable
       SIMULATED_FAILURE_EVERY: "0"
     expose:
@@ -18,6 +19,7 @@ services:
   canary:
     image: autonomous-canary:compose
     environment:
+      CANARYGUARD_API_KEY: "${CANARYGUARD_API_KEY:?CANARYGUARD_API_KEY must be set}"
       RELEASE_CHANNEL: canary
       SIMULATED_FAILURE_EVERY: "${CANARY_FAILURE_EVERY:-0}"
     expose:
