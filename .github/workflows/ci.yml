@@ -89,6 +89,8 @@ jobs:
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      CANARYGUARD_API_KEY: ci-only-review-api-key-000000000000
 
     steps:
       - name: Check out repository

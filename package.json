@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --project tsconfig.test.json",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts test/*/*.test.ts",
     "verify:routing": "tsx scripts/verify-routing.ts",
     "evaluate:canary": "tsx scripts/evaluate-canary.ts",
     "build": "tsc --project tsconfig.json",
@@ -22,5 +22,8 @@
   },
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }
