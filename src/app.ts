@@ -9,6 +9,12 @@ import {
 import type {
   ReviewController,
 } from "./controllers/review-controller.js";
+import type {
+  GitHubReviewController,
+} from "./controllers/github-review-controller.js";
+import type {
+  ReviewResponseDto,
+} from "./dto/review-response.js";
 import {
   createFailureSimulator,
 } from "./failure-simulator.js";
@@ -37,8 +43,16 @@ const serviceName =
 export interface RequestHandlerOptions {
   readonly reviewController?:
     ReviewController;
+  readonly githubReviewController?:
+    GitHubReviewController;
   readonly authenticateReviewRequest?:
     ReviewApiKeyAuthenticator;
+}
+
+interface ReviewCreator {
+  createReview(
+    input: unknown,
+  ): Promise<ReviewResponseDto>;
 }
 
 function sendJson(
@@ -70,9 +84,13 @@ const rejectUnavailableReviewRequest:
 async function handleReviewRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  reviewController: ReviewController,
+  reviewController:
+    ReviewCreator | undefined,
   authenticateReviewRequest:
     ReviewApiKeyAuthenticator,
+  unavailableCode:
+    "REVIEW_API_UNAVAILABLE"
+    | "GITHUB_APP_UNAVAILABLE",
 ): Promise<void> {
   try {
     /*
@@ -81,6 +99,16 @@ async function handleReviewRequest(
      * sanitization, policy, or intelligence resources.
      */
     authenticateReviewRequest(request);
+
+    if (reviewController === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code: unavailableCode,
+        message:
+          "The requested review provider is not configured.",
+        expose: false,
+      });
+    }
 
     const input =
       await readJsonBody(request);
@@ -126,6 +154,9 @@ export function createRequestHandler(
   const reviewController =
     options.reviewController
     ?? new DefaultReviewController();
+
+  const githubReviewController =
+    options.githubReviewController;
 
   const authenticateReviewRequest =
     options.authenticateReviewRequest
@@ -215,6 +246,40 @@ export function createRequestHandler(
         response,
         reviewController,
         authenticateReviewRequest,
+        "REVIEW_API_UNAVAILABLE",
+      );
+
+      return;
+    }
+
+    if (pathname === "/github/reviews") {
+      if (request.method !== "POST") {
+        request.resume();
+
+        response.setHeader(
+          "allow",
+          "POST",
+        );
+
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only POST is supported for /github/reviews.",
+          }),
+        );
+
+        return;
+      }
+
+      void handleReviewRequest(
+        request,
+        response,
+        githubReviewController,
+        authenticateReviewRequest,
+        "GITHUB_APP_UNAVAILABLE",
       );
 
       return;

@@ -9,6 +9,9 @@ import {
   DefaultReviewController,
 } from "./controllers/review-controller.js";
 import {
+  DefaultGitHubReviewController,
+} from "./controllers/github-review-controller.js";
+import {
   createIntelligenceEngine,
 } from "./engines/intelligence/intelligence-engine-factory.js";
 import {
@@ -17,6 +20,12 @@ import {
 import {
   loadFailureSimulator,
 } from "./failure-simulator.js";
+import {
+  GitHubAppApiClient,
+} from "./github/github-api-client.js";
+import {
+  loadGitHubConfig,
+} from "./github/github-app-config.js";
 import {
   createReviewApiKeyAuthenticator,
   loadReviewApiKey,
@@ -70,6 +79,20 @@ const reviewController =
     intelligenceEngine,
   });
 
+const githubConfig =
+  loadGitHubConfig();
+
+const githubReviewController =
+  githubConfig.provider === "DISABLED"
+    ? undefined
+    : new DefaultGitHubReviewController({
+        evidenceCollector:
+          new GitHubAppApiClient(
+            githubConfig,
+          ),
+        reviewController,
+      });
+
 const requestHandler =
   createRequestHandler(
     loadReleaseMetadata(),
@@ -77,6 +100,14 @@ const requestHandler =
     {
       authenticateReviewRequest,
       reviewController,
+      ...(
+        githubReviewController
+          === undefined
+          ? {}
+          : {
+              githubReviewController,
+            }
+      ),
     },
   );
 

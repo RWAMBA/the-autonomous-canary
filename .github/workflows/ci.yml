@@ -19,6 +19,7 @@ concurrency:
 env:
   CI: "true"
   CANARYGUARD_INTELLIGENCE_PROVIDER: MOCK
+  CANARYGUARD_GITHUB_PROVIDER: DISABLED
 
 jobs:
   quality:
@@ -44,6 +45,16 @@ jobs:
 
           if [[ -n "${OPENAI_API_KEY:-}" ]]; then
             echo "OPENAI_API_KEY must not be available to public CI." >&2
+            exit 1
+          fi
+
+          if [[ "${CANARYGUARD_GITHUB_PROVIDER}" != "DISABLED" ]]; then
+            echo "Public CI must disable GitHub App collection." >&2
+            exit 1
+          fi
+
+          if [[ -n "${GITHUB_APP_CLIENT_ID:-}" || -n "${GITHUB_APP_PRIVATE_KEY_BASE64:-}" ]]; then
+            echo "GitHub App credentials must not be available to public CI." >&2
             exit 1
           fi
 
