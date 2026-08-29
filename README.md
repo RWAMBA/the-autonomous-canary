@@ -15,10 +15,12 @@ The MVP:
 - processes reviews end to end
 - validates and sanitizes submitted release evidence
 - investigates bounded GitHub Actions workflow, job, step, and log-excerpt evidence
+- classifies failed or incomplete CI evidence into a bounded diagnostic contract
 - optionally collects completed workflow-run and exact-attempt job metadata through a least-privilege GitHub App
 - optionally validates and acknowledges signed GitHub `workflow_run` webhook deliveries
 - rejects bounded in-process delivery replays
 - returns a structured CI investigation without returning raw logs
+- returns log-free evidence references, confidence, retry guidance, and release-approval impact
 - blocks failed tests and critical security findings
 - blocks authoritative failed CI conclusions even when aggregate test evidence says `passed`
 - records structured intelligence telemetry
@@ -183,7 +185,7 @@ Example successful review:
   "analysis": {
     "provider": "MOCK",
     "modelTarget": "mock-canaryguard-v1",
-    "promptVersion": "canaryguard-review-v2"
+    "promptVersion": "canaryguard-review-v3"
   },
   "decision": "CONTINUE",
   "deployment": {
@@ -243,6 +245,52 @@ Supported terminal conclusions are:
 The deterministic investigator classifies `failure`, `timed_out`, `action_required`, and `startup_failure` as failed. It classifies `neutral`, `cancelled`, `skipped`, and `stale` as incomplete. A failed workflow or job creates the blocking rule `CI_FAILED`; incomplete evidence creates a nonblocking high-risk `CI_INCOMPLETE` finding.
 
 The public response may include `ciInvestigation` with the workflow identity, outcome, counts, and affected jobs and steps. Raw `logExcerpt` values are never included in that response.
+
+When CI is failed or incomplete, the response also includes a `ciDiagnostic`:
+
+```json
+{
+  "failureCategory": "TEST_FAILURE",
+  "probableCause": "The Test step in the quality job reported failure.",
+  "relevantChangedFiles": [],
+  "supportingEvidence": [
+    {
+      "jobName": "quality",
+      "stepName": "Test",
+      "conclusion": "failure",
+      "logEvidenceAvailable": true
+    }
+  ],
+  "confidence": "HIGH",
+  "recommendedActions": [
+    "Repair the failing tests or implementation, then submit a new completed CI run."
+  ],
+  "retryRecommendation": "RETRY_AFTER_FIX",
+  "affectsReleaseApproval": true,
+  "classificationSource": "DETERMINISTIC"
+}
+```
+
+Supported categories are:
+
+- `TEST_FAILURE`
+- `TYPE_CHECK_FAILURE`
+- `BUILD_FAILURE`
+- `DEPENDENCY_FAILURE`
+- `SECURITY_SCAN_FAILURE`
+- `INFRASTRUCTURE_FAILURE`
+- `FLAKY_OR_INCONCLUSIVE_FAILURE`
+
+The diagnostic boundary preserves decision authority:
+
+1. the deterministic investigator records workflow, job, and step outcomes
+2. recognizable job or step names are classified deterministically
+3. only an ambiguous failure may use the structured intelligence diagnosis
+4. intelligence-proposed file paths are retained only when they occur in the submitted diff
+5. `affectsReleaseApproval` is derived from the deterministic CI outcome
+6. the Policy Engine independently owns the final `BLOCK` or `CONTINUE` decision
+
+`supportingEvidence` identifies the affected job and step and records whether sanitized log evidence was supplied. It never contains the log excerpt itself. This allows the result to cite its evidence boundary without returning source code, credentials, or raw provider output.
 
 ## Collect evidence with a GitHub App
 
@@ -776,6 +824,7 @@ src/
 │   └── review-controller.ts
 ├── dto/
 │   ├── ci-evidence.ts
+│   ├── ci-diagnostic.ts
 │   ├── ci-investigation.ts
 │   ├── github-review-request.ts
 │   ├── github-webhook.ts
@@ -783,6 +832,7 @@ src/
 │   └── review-response.ts
 ├── engines/
 │   ├── ci/
+│   │   ├── ci-diagnostic-builder.ts
 │   │   └── ci-investigator.ts
 │   ├── deterministic/
 │   ├── intelligence/
@@ -821,6 +871,7 @@ The current MVP intentionally has these limitations:
 - public CI validates the OpenAI adapter through mocked SDK contracts rather than paid provider calls
 - `/reviews` CI evidence remains caller-supplied; `/github/reviews` supports authenticated GitHub metadata collection
 - the GitHub App adapter collects workflow and job metadata but does not download logs
+- probable-cause detail is bounded by the evidence supplied; GitHub App reviews without collected logs may have only job- and step-level evidence
 - reviews are not stored in a database
 - authentication uses one service-level API key
 - tenant accounts and role-based authorization are not implemented

@@ -60,6 +60,7 @@ test("returns the default mock intelligence assessment", async () => {
         "Mock intelligence assessment completed without external model execution.",
       findings: [],
       requiredActions: [],
+      ciDiagnosis: null,
       advisoryDeployment: {
         strategy: "STANDARD",
         initialTrafficPercent: 100,
@@ -125,6 +126,7 @@ test("returns an injected assessment for controlled tests", async () => {
     requiredActions: [
       "Resolve the critical security risk.",
     ],
+    ciDiagnosis: null,
     advisoryDeployment: {
       strategy: "BLOCKED",
       initialTrafficPercent: 0,
@@ -154,6 +156,7 @@ test("rejects an invalid configured assessment", () => {
     summary: "Invalid risk score.",
     findings: [],
     requiredActions: [],
+    ciDiagnosis: null,
     advisoryDeployment: {
       strategy: "STANDARD",
       initialTrafficPercent: 100,

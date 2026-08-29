@@ -39,6 +39,7 @@ const defaultAssessment: IntelligenceAssessment = {
     "Mock intelligence assessment completed without external model execution.",
   findings: [],
   requiredActions: [],
+  ciDiagnosis: null,
   advisoryDeployment: {
     strategy: "STANDARD",
     initialTrafficPercent: 100,

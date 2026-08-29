@@ -107,6 +107,7 @@ const defaultAssessment:
       "The mock assessment found low release risk.",
     findings: [],
     requiredActions: [],
+    ciDiagnosis: null,
     advisoryDeployment: {
       strategy: "STANDARD",
       initialTrafficPercent: 100,
@@ -126,7 +127,7 @@ function createIntelligenceResult(
     telemetry: {
       provider: "MOCK",
       modelTarget: "mock-canaryguard-v1",
-      promptVersion: "canaryguard-review-v2",
+      promptVersion: "canaryguard-review-v3",
       inputTokens: 15,
       outputTokens: 5,
       totalTokens: 20,
@@ -182,7 +183,7 @@ test("continues a clean low-risk release at full traffic", () => {
   assert.deepEqual(result.analysis, {
     provider: "MOCK",
     modelTarget: "mock-canaryguard-v1",
-    promptVersion: "canaryguard-review-v2",
+    promptVersion: "canaryguard-review-v3",
   });
 });
 
@@ -316,6 +317,20 @@ test("failed CI evidence overrides AI continuation and exposes a log-free invest
     result.ciInvestigation?.outcome,
     "FAILED",
   );
+  assert.equal(
+    result.ciDiagnostic?.failureCategory,
+    "TEST_FAILURE",
+  );
+  assert.equal(
+    result.ciDiagnostic
+      ?.affectsReleaseApproval,
+    true,
+  );
+  assert.equal(
+    result.ciDiagnostic
+      ?.classificationSource,
+    "DETERMINISTIC",
+  );
   assert.ok(
     result.requiredActions.includes(
       "Repair the failed GitHub Actions jobs or steps and submit a completed successful run.",
@@ -357,6 +372,15 @@ test("incomplete CI evidence forces high-risk canary routing without blocking", 
   assert.deepEqual(
     result.policyOverrides,
     [],
+  );
+  assert.equal(
+    result.ciDiagnostic?.failureCategory,
+    "FLAKY_OR_INCONCLUSIVE_FAILURE",
+  );
+  assert.equal(
+    result.ciDiagnostic
+      ?.affectsReleaseApproval,
+    false,
   );
 });
 

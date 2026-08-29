@@ -19,7 +19,7 @@ const telemetry:
   IntelligenceTelemetry = {
     provider: "MOCK",
     modelTarget: "mock-canaryguard-v1",
-    promptVersion: "canaryguard-review-v2",
+    promptVersion: "canaryguard-review-v3",
     inputTokens: 15,
     outputTokens: 5,
     totalTokens: 20,

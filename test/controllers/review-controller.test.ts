@@ -156,6 +156,7 @@ test("blocks failed tests despite a mock continue recommendation", async () => {
           "The mock recommends continuing.",
         findings: [],
         requiredActions: [],
+        ciDiagnosis: null,
         advisoryDeployment: {
           strategy: "STANDARD",
           initialTrafficPercent: 100,
