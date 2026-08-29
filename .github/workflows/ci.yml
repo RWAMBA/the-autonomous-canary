@@ -18,6 +18,7 @@ concurrency:
 
 env:
   CI: "true"
+  CANARYGUARD_INTELLIGENCE_PROVIDER: MOCK
 
 jobs:
   quality:
@@ -32,6 +33,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Verify public CI intelligence isolation
+        shell: bash
+        run: |
+          if [[ "${CANARYGUARD_INTELLIGENCE_PROVIDER}" != "MOCK" ]]; then
+            echo "Public CI must use the mock intelligence provider." >&2
+            exit 1
+          fi
+
+          if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+            echo "OPENAI_API_KEY must not be available to public CI." >&2
+            exit 1
+          fi
 
       - name: Scan dependencies and configuration
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -201,6 +215,7 @@ jobs:
 
   deploy:
     name: Deploy to Render
+    permissions: {}
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs:
       - quality

@@ -6,6 +6,15 @@ import {
   createRequestHandler,
 } from "./app.js";
 import {
+  DefaultReviewController,
+} from "./controllers/review-controller.js";
+import {
+  createIntelligenceEngine,
+} from "./engines/intelligence/intelligence-engine-factory.js";
+import {
+  loadIntelligenceConfig,
+} from "./engines/intelligence/openai-intelligence-config.js";
+import {
   loadFailureSimulator,
 } from "./failure-simulator.js";
 import {
@@ -51,12 +60,23 @@ const authenticateReviewRequest =
     loadReviewApiKey(),
   );
 
+const intelligenceEngine =
+  createIntelligenceEngine(
+    loadIntelligenceConfig(),
+  );
+
+const reviewController =
+  new DefaultReviewController({
+    intelligenceEngine,
+  });
+
 const requestHandler =
   createRequestHandler(
     loadReleaseMetadata(),
     loadFailureSimulator(),
     {
       authenticateReviewRequest,
+      reviewController,
     },
   );
 
