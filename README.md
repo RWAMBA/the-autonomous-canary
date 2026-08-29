@@ -2,7 +2,7 @@
 
 CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a software change is safe to release, identifies possible failure risks, and selects an appropriate deployment strategy.
 
-The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
+The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs, plus an optional signed `POST /github/webhooks` ingestion boundary, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
 ## Current MVP status
 
@@ -16,6 +16,8 @@ The MVP:
 - validates and sanitizes submitted release evidence
 - investigates bounded GitHub Actions workflow, job, step, and log-excerpt evidence
 - optionally collects completed workflow-run and exact-attempt job metadata through a least-privilege GitHub App
+- optionally validates and acknowledges signed GitHub `workflow_run` webhook deliveries
+- rejects bounded in-process delivery replays
 - returns a structured CI investigation without returning raw logs
 - blocks failed tests and critical security findings
 - blocks authoritative failed CI conclusions even when aggregate test evidence says `passed`
@@ -80,10 +82,11 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `GET` | `/work` | Exercises deterministic workload behavior |
 | `POST` | `/reviews` | Creates a release-risk review |
 | `POST` | `/github/reviews` | Collects GitHub Actions evidence and creates a review |
+| `POST` | `/github/webhooks` | Validates and acknowledges signed GitHub `workflow_run` deliveries |
 
 ## Authentication
 
-Both review endpoints require a bearer token:
+Both review-creation endpoints require a bearer token:
 
 ```http
 Authorization: Bearer <CANARYGUARD_API_KEY>
@@ -104,6 +107,8 @@ The configured token must:
 
 Authentication comparison uses SHA-256 digests and Node.js timing-safe comparison.
 
+The webhook endpoint does not use the review bearer token. It authenticates GitHub by verifying `X-Hub-Signature-256` over the exact raw request bytes with the separately configured `GITHUB_WEBHOOK_SECRET`. Signature comparison uses HMAC-SHA256 and Node.js timing-safe comparison.
+
 ### Environment-only secret boundary
 
 The public repository contains:
@@ -121,6 +126,8 @@ The application never accepts customer GitHub tokens, GitHub App JWTs, installat
 The direct `/reviews` path continues to accept normalized caller-supplied CI evidence. The optional `/github/reviews` path creates its own short-lived GitHub App JWT, discovers the repository installation, requests a repository-scoped installation token with only `Actions: read`, and collects workflow-run and exact-attempt job metadata from GitHub.
 
 The GitHub App private key remains in a protected runtime environment. Generated JWTs and installation tokens are transient and are never returned, logged, persisted, or forwarded to the intelligence provider.
+
+The GitHub webhook secret is a separate credential. It remains in a protected runtime environment and is never returned, logged, persisted, or forwarded to an analysis engine.
 
 When the OpenAI provider is enabled, the sanitized review request is submitted to OpenAI for analysis. Teams must enable this path only when they are authorized to process the submitted repository data through that provider.
 
@@ -281,7 +288,7 @@ The server rejects:
 - jobs for another run or head commit
 - incomplete, oversized, or invalid GitHub API responses
 
-The collector does not download job logs. Job-log collection, webhook delivery, automatic event processing, and Check Run writes remain outside this milestone.
+The collector does not download job logs. Signed webhook ingestion is implemented as a separate receipt-only boundary; job-log collection, durable automatic event processing, and Check Run writes remain outside this milestone.
 
 ### GitHub App permissions
 
@@ -294,6 +301,62 @@ Create the GitHub App with only the repository permission `Actions: read`, then 
 - [Workflow-job endpoints](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt)
 
 The implementation uses the versioned GitHub REST API header `2026-03-10`. It restricts each installation token to the requested repository and requests only `actions: read` even if the installation can access other repositories.
+
+## Ingest signed GitHub workflow events
+
+Webhook ingestion is disabled by default. When enabled, `POST /github/webhooks` accepts JSON deliveries from the GitHub App without requiring `CANARYGUARD_API_KEY`.
+
+Every delivery must include:
+
+```text
+Content-Type: application/json
+X-GitHub-Event: workflow_run
+X-GitHub-Delivery: <GitHub delivery GUID>
+X-Hub-Signature-256: sha256=<HMAC-SHA256 digest>
+```
+
+The receiver:
+
+1. reads at most 256 KiB without altering the body bytes
+2. verifies `X-Hub-Signature-256` before decoding or parsing JSON
+3. accepts only the `workflow_run` event and known workflow-run actions
+4. requires valid bounded workflow, installation, repository, run-attempt, conclusion, and Git SHA fields
+5. binds the top-level repository identity to the workflow-run repository by numeric identifier and case-insensitive full name
+6. binds `workflow_run.head_commit.id` to `workflow_run.head_sha` when the head-commit object is present
+7. reserves the `X-GitHub-Delivery` GUID in a bounded replay registry
+8. returns and logs only a normalized receipt without raw provider content
+
+`requested` and `in_progress` workflow-run actions receive HTTP `202` with `status: "IGNORED"`. A valid `completed` action receives HTTP `202` with `status: "ACCEPTED"`:
+
+```json
+{
+  "deliveryId": "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+  "event": "workflow_run",
+  "status": "ACCEPTED",
+  "repository": {
+    "owner": "RWAMBA",
+    "name": "the-autonomous-canary"
+  },
+  "workflowRun": {
+    "id": 33273782416,
+    "runAttempt": 1,
+    "headSha": "1ca9fd52769fe3d4e60e02e02d8fe73f1e91f45a",
+    "conclusion": "success"
+  }
+}
+```
+
+A duplicate unexpired delivery receives `409 GITHUB_WEBHOOK_DELIVERY_REPLAYED`. If the bounded registry is full of unexpired delivery identifiers, new deliveries fail closed with HTTP `503` until entries expire.
+
+Replay state is deliberately bounded and held only in the current application process. It is lost on restart and is not shared by multiple service instances. Durable, distributed replay protection requires an external store and remains outside this milestone.
+
+This endpoint does not call the GitHub REST API, create a release review, write a Check Run, persist the payload, or execute a deployment. It establishes the authenticated ingestion boundary for a later durable event-processing pipeline.
+
+GitHub recommends validating `X-Hub-Signature-256` before processing a payload, checking both the event type and action, responding within ten seconds, and using `X-GitHub-Delivery` to identify replays:
+
+- [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
+- [Webhook security and delivery best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks)
+- [`workflow_run` event payload](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run)
 
 ## Final deployment policy
 
@@ -315,7 +378,7 @@ The AI recommendation cannot override failed tests, failed CI evidence, critical
 
 ### Payload limits
 
-The HTTP request body is limited to 256 KiB.
+Review and webhook HTTP request bodies are each limited to 256 KiB.
 
 The Git diff is limited to 200,000 characters.
 
@@ -544,6 +607,42 @@ unset CANARYGUARD_GITHUB_PROVIDER
 
 Never commit, print, log, screenshot, or paste the private key or its base64 representation into chat, issue reports, or source files.
 
+### GitHub webhook selection
+
+| Environment variable | Requirement | Default |
+|---|---|---|
+| `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER` | `DISABLED` or `GITHUB` | `DISABLED` |
+| `GITHUB_WEBHOOK_SECRET` | One non-whitespace value containing 32 to 512 bytes; required only with `GITHUB` | None |
+| `GITHUB_WEBHOOK_REPLAY_TTL_MS` | Integer from 60,000 to 86,400,000 | `600000` |
+| `GITHUB_WEBHOOK_REPLAY_CAPACITY` | Integer from 100 to 100,000 | `10000` |
+
+Keep signed webhook ingestion disabled until the endpoint is deployed and its GitHub App configuration is ready:
+
+```bash
+export CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=DISABLED
+```
+
+For an intentional local validation, generate a separate high-entropy secret without printing it, configure the same value in the GitHub App, and load it only into the current shell:
+
+```bash
+set +x
+
+GITHUB_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+export GITHUB_WEBHOOK_SECRET
+export CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB
+
+npm run dev
+```
+
+After stopping the server, clear the secret:
+
+```bash
+unset GITHUB_WEBHOOK_SECRET
+unset CANARYGUARD_GITHUB_WEBHOOK_PROVIDER
+```
+
+Do not reuse `CANARYGUARD_API_KEY`, an OpenAI key, or the GitHub App private key as the webhook secret.
+
 ## Docker Compose
 
 Generate a temporary local API key:
@@ -586,6 +685,8 @@ Never write the OpenAI key into `compose.yaml`, `.env.example`, a committed `.en
 
 GitHub App collection remains `DISABLED` unless `CANARYGUARD_GITHUB_PROVIDER=APP` is explicitly set and both GitHub App credential variables are loaded into the current shell. Never write the GitHub private key or its base64 representation into Compose configuration or an image.
 
+Signed webhook ingestion independently remains `DISABLED` unless `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB` and `GITHUB_WEBHOOK_SECRET` is loaded into the current shell. Never write the webhook secret into Compose configuration or an image.
+
 ## Validation
 
 Run the complete local validation suite:
@@ -607,8 +708,10 @@ The public continuous-integration job:
 - grants `GITHUB_TOKEN` only read access to repository contents
 - forces `CANARYGUARD_INTELLIGENCE_PROVIDER=MOCK`
 - forces `CANARYGUARD_GITHUB_PROVIDER=DISABLED`
+- forces `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=DISABLED`
 - removes `OPENAI_API_KEY` from the job environment
 - fails if GitHub App credential variables unexpectedly reach public CI
+- fails if `GITHUB_WEBHOOK_SECRET` unexpectedly reaches public CI
 - fails if an OpenAI key unexpectedly reaches the public validation job
 - performs no GitHub App API requests
 - performs no paid OpenAI requests
@@ -643,6 +746,15 @@ GITHUB_APP_PRIVATE_KEY_BASE64=<base64-encoded GitHub App RSA private key>
 
 Store the private key value as a Render secret. `GITHUB_API_TIMEOUT_MS` may be set within the documented bounds.
 
+GitHub webhook ingestion should remain disabled until the signed endpoint has been deployed and the same dedicated secret can be configured in both Render and the GitHub App. To enable it, configure:
+
+```text
+CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB
+GITHUB_WEBHOOK_SECRET=<dedicated high-entropy webhook secret>
+```
+
+Optionally configure the replay TTL and capacity within their documented bounds. In the GitHub App settings, use the HTTPS payload URL ending in `/github/webhooks`, keep SSL verification enabled, and subscribe only to the Workflow runs event.
+
 Do not store production secrets in GitHub source files, workflow definitions, Docker configuration, build arguments, or container layers.
 
 Render supplies `RENDER_GIT_COMMIT`, which the application uses to report the exact deployed revision through `/version`.
@@ -666,6 +778,7 @@ src/
 │   ├── ci-evidence.ts
 │   ├── ci-investigation.ts
 │   ├── github-review-request.ts
+│   ├── github-webhook.ts
 │   ├── review-request.ts
 │   └── review-response.ts
 ├── engines/
@@ -685,10 +798,14 @@ src/
 ├── github/
 │   ├── github-api-client.ts
 │   ├── github-app-config.ts
-│   └── github-app-jwt.ts
+│   ├── github-app-jwt.ts
+│   ├── github-webhook-config.ts
+│   ├── github-webhook-receiver.ts
+│   └── github-webhook-replay-guard.ts
 ├── middleware/
 │   ├── http-error.ts
 │   ├── read-json-body.ts
+│   ├── read-raw-body.ts
 │   ├── require-review-api-key.ts
 │   ├── sanitize-review-request.ts
 │   └── send-error-response.ts
@@ -708,7 +825,9 @@ The current MVP intentionally has these limitations:
 - authentication uses one service-level API key
 - tenant accounts and role-based authorization are not implemented
 - request quotas and distributed rate limiting are not implemented
-- GitHub webhooks, automatic event processing, and Check Run writes are not implemented
+- webhook replay protection is process-local and not durable or shared across instances
+- webhook receipts do not yet invoke the Review API or a durable asynchronous event processor
+- Check Run writes are not implemented
 - predictions are not yet correlated with deployment outcomes
 - deployment actions are recommended but not automatically executed by the Review API
 

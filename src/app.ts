@@ -13,6 +13,9 @@ import type {
   GitHubReviewController,
 } from "./controllers/github-review-controller.js";
 import type {
+  GitHubWebhookReceiver,
+} from "./github/github-webhook-receiver.js";
+import type {
   ReviewResponseDto,
 } from "./dto/review-response.js";
 import {
@@ -27,6 +30,9 @@ import {
 import {
   readJsonBody,
 } from "./middleware/read-json-body.js";
+import {
+  readRawBody,
+} from "./middleware/read-raw-body.js";
 import type {
   ReviewApiKeyAuthenticator,
 } from "./middleware/require-review-api-key.js";
@@ -45,6 +51,8 @@ export interface RequestHandlerOptions {
     ReviewController;
   readonly githubReviewController?:
     GitHubReviewController;
+  readonly githubWebhookReceiver?:
+    GitHubWebhookReceiver;
   readonly authenticateReviewRequest?:
     ReviewApiKeyAuthenticator;
 }
@@ -142,6 +150,52 @@ async function handleReviewRequest(
   }
 }
 
+async function handleGitHubWebhookRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  receiver:
+    GitHubWebhookReceiver | undefined,
+): Promise<void> {
+  try {
+    if (receiver === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code:
+          "GITHUB_WEBHOOK_UNAVAILABLE",
+        message:
+          "GitHub webhook ingestion is not configured.",
+        expose: false,
+      });
+    }
+
+    const rawBody =
+      await readRawBody(request);
+
+    const receipt = receiver.receive({
+      headers: request.headers,
+      rawBody,
+    });
+
+    response.setHeader(
+      "cache-control",
+      "no-store",
+    );
+
+    sendJson(
+      response,
+      202,
+      receipt,
+    );
+  } catch (error) {
+    request.resume();
+
+    sendErrorResponse(
+      response,
+      error,
+    );
+  }
+}
+
 export function createRequestHandler(
   release: ReleaseMetadata,
   failureSimulator: FailureSimulator =
@@ -157,6 +211,9 @@ export function createRequestHandler(
 
   const githubReviewController =
     options.githubReviewController;
+
+  const githubWebhookReceiver =
+    options.githubWebhookReceiver;
 
   const authenticateReviewRequest =
     options.authenticateReviewRequest
@@ -280,6 +337,37 @@ export function createRequestHandler(
         githubReviewController,
         authenticateReviewRequest,
         "GITHUB_APP_UNAVAILABLE",
+      );
+
+      return;
+    }
+
+    if (pathname === "/github/webhooks") {
+      if (request.method !== "POST") {
+        request.resume();
+
+        response.setHeader(
+          "allow",
+          "POST",
+        );
+
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only POST is supported for /github/webhooks.",
+          }),
+        );
+
+        return;
+      }
+
+      void handleGitHubWebhookRequest(
+        request,
+        response,
+        githubWebhookReceiver,
       );
 
       return;
