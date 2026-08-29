@@ -158,6 +158,62 @@ export function sanitizeReviewRequest(
             ),
           }),
         ),
+      ...(
+        request.evidence.ci === undefined
+          ? {}
+          : {
+              ci: {
+                provider:
+                  request.evidence.ci.provider,
+                workflowName: sanitizeText(
+                  request.evidence.ci.workflowName,
+                  counts,
+                ),
+                runId:
+                  request.evidence.ci.runId,
+                runAttempt:
+                  request.evidence.ci.runAttempt,
+                conclusion:
+                  request.evidence.ci.conclusion,
+                jobs:
+                  request.evidence.ci.jobs.map(
+                    (job) => ({
+                      jobId: job.jobId,
+                      name: sanitizeText(
+                        job.name,
+                        counts,
+                      ),
+                      conclusion:
+                        job.conclusion,
+                      steps: job.steps.map(
+                        (step) => ({
+                          number:
+                            step.number,
+                          name: sanitizeText(
+                            step.name,
+                            counts,
+                          ),
+                          conclusion:
+                            step.conclusion,
+                          ...(
+                            step.logExcerpt
+                            === undefined
+                              ? {}
+                              : {
+                                  logExcerpt:
+                                    sanitizeText(
+                                      step.logExcerpt,
+                                      counts,
+                                    ),
+                                }
+                          ),
+                        }),
+                      ),
+                    }),
+                  ),
+              },
+            }
+      ),
     },
   };
 

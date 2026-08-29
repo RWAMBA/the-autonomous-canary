@@ -2,8 +2,17 @@ import type {
   ReviewRequestDto,
 } from "../../dto/review-request.js";
 import type {
+  CiInvestigationDto,
+} from "../../dto/ci-investigation.js";
+import type {
   ReviewRiskLevel,
 } from "../../dto/review-response.js";
+import {
+  DefaultCiInvestigator,
+} from "../ci/ci-investigator.js";
+import type {
+  CiInvestigator,
+} from "../ci/ci-investigator.js";
 
 export interface DeterministicFinding {
   readonly code: string;
@@ -18,6 +27,8 @@ export interface DeterministicFinding {
 export interface DeterministicAssessment {
   readonly findings: readonly DeterministicFinding[];
   readonly blockingRuleCodes: readonly string[];
+  readonly ciInvestigation?:
+    CiInvestigationDto;
 }
 
 export interface DeterministicEngine {
@@ -103,8 +114,50 @@ function createSecurityFinding(
   });
 }
 
+function createCiFinding(
+  investigation: CiInvestigationDto,
+): DeterministicFinding | undefined {
+  if (investigation.outcome === "PASSED") {
+    return undefined;
+  }
+
+  if (investigation.outcome === "FAILED") {
+    return Object.freeze({
+      code: "CI_FAILED",
+      source: "DETERMINISTIC",
+      severity: "CRITICAL",
+      title:
+        "GitHub Actions reported a CI failure",
+      explanation:
+        `Workflow ${investigation.workflowName} run ${investigation.runId} attempt ${investigation.runAttempt} reported ${investigation.summary.failedJobs} failed job(s) and ${investigation.summary.failedSteps} failed step(s).`,
+      blocking: true,
+    });
+  }
+
+  return Object.freeze({
+    code: "CI_INCOMPLETE",
+    source: "DETERMINISTIC",
+    severity: "HIGH",
+    title:
+      "GitHub Actions evidence is incomplete",
+    explanation:
+      `Workflow ${investigation.workflowName} run ${investigation.runId} attempt ${investigation.runAttempt} did not produce a successful or failed terminal result.`,
+    blocking: false,
+  });
+}
+
 export class DefaultDeterministicEngine
 implements DeterministicEngine {
+  private readonly ciInvestigator:
+    CiInvestigator;
+
+  constructor(
+    ciInvestigator: CiInvestigator =
+      new DefaultCiInvestigator(),
+  ) {
+    this.ciInvestigator = ciInvestigator;
+  }
+
   analyze(
     request: ReviewRequestDto,
   ): DeterministicAssessment {
@@ -127,6 +180,23 @@ implements DeterministicEngine {
       );
     }
 
+    const ciInvestigation =
+      request.evidence.ci === undefined
+        ? undefined
+        : this.ciInvestigator.investigate(
+            request.evidence.ci,
+          );
+
+    if (ciInvestigation !== undefined) {
+      const ciFinding = createCiFinding(
+        ciInvestigation,
+      );
+
+      if (ciFinding !== undefined) {
+        findings.push(ciFinding);
+      }
+    }
+
     const blockingRuleCodes = [
       ...new Set(
         findings
@@ -139,6 +209,13 @@ implements DeterministicEngine {
       findings: Object.freeze(findings),
       blockingRuleCodes:
         Object.freeze(blockingRuleCodes),
+      ...(
+        ciInvestigation === undefined
+          ? {}
+          : {
+              ciInvestigation,
+            }
+      ),
     });
   }
 }

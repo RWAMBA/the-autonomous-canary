@@ -270,6 +270,10 @@ function createRequiredAction(
     return "Resolve every critical security finding before release.";
   }
 
+  if (code === "CI_FAILED") {
+    return "Repair the failed GitHub Actions jobs or steps and submit a completed successful run.";
+  }
+
   if (code === "CRITICAL_RISK") {
     return "Reduce or resolve the critical release risk before deployment.";
   }
@@ -388,6 +392,17 @@ implements PolicyEngine {
       findings,
       requiredActions,
       policyOverrides,
+      ...(
+        input.deterministicAssessment
+          .ciInvestigation
+        === undefined
+          ? {}
+          : {
+              ciInvestigation:
+                input.deterministicAssessment
+                  .ciInvestigation,
+            }
+      ),
       deployment: createDeployment(
         decision,
         risk.level,

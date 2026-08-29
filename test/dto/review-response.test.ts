@@ -103,6 +103,95 @@ test("accepts a standard deployment at full traffic", () => {
   );
 });
 
+test("accepts a structured log-free CI investigation", () => {
+  const input = {
+    ...createCommonResponse(),
+    decision: "BLOCK",
+    deployment: {
+      strategy: "BLOCKED",
+      initialTrafficPercent: 0,
+    },
+    ciInvestigation: {
+      provider: "GITHUB_ACTIONS",
+      workflowName:
+        "Continuous Integration",
+      runId: 33_262_408_116,
+      runAttempt: 1,
+      conclusion: "failure",
+      outcome: "FAILED",
+      summary: {
+        totalJobs: 1,
+        failedJobs: 1,
+        incompleteJobs: 0,
+        failedSteps: 1,
+        incompleteSteps: 0,
+      },
+      problemJobs: [
+        {
+          jobId: 101,
+          name: "quality",
+          conclusion: "failure",
+          problemSteps: [
+            {
+              number: 4,
+              name: "Test",
+              conclusion: "failure",
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  assert.deepEqual(
+    parseReviewResponse(input),
+    input,
+  );
+});
+
+test("rejects raw CI logs in the public investigation response", () => {
+  assert.throws(() => parseReviewResponse({
+    ...createCommonResponse(),
+    decision: "BLOCK",
+    deployment: {
+      strategy: "BLOCKED",
+      initialTrafficPercent: 0,
+    },
+    ciInvestigation: {
+      provider: "GITHUB_ACTIONS",
+      workflowName:
+        "Continuous Integration",
+      runId: 33_262_408_116,
+      runAttempt: 1,
+      conclusion: "failure",
+      outcome: "FAILED",
+      summary: {
+        totalJobs: 1,
+        failedJobs: 1,
+        incompleteJobs: 0,
+        failedSteps: 1,
+        incompleteSteps: 0,
+      },
+      problemJobs: [
+        {
+          jobId: 101,
+          name: "quality",
+          conclusion: "failure",
+          problemSteps: [
+            {
+              number: 4,
+              name: "Test",
+              conclusion: "failure",
+              logExcerpt:
+                "Raw log content must not be public.",
+            },
+          ],
+        },
+      ],
+    },
+  }));
+});
+
 test("rejects a blocked review with canary traffic", () => {
   assert.throws(() => parseReviewResponse({
     ...createCommonResponse(),

@@ -15,7 +15,7 @@ const validMockTelemetry = {
   provider: "MOCK",
   modelTarget: "mock-canaryguard-v1",
   promptVersion:
-    "canaryguard-review-v1",
+    "canaryguard-review-v2",
   inputTokens: 0,
   outputTokens: 0,
   totalTokens: 0,
@@ -27,7 +27,7 @@ const validOpenAITelemetry = {
   provider: "OPENAI",
   modelTarget: "gpt-5.6-luna",
   promptVersion:
-    "canaryguard-review-v1",
+    "canaryguard-review-v2",
   inputTokens: 1_000,
   cachedInputTokens: 200,
   cacheWriteInputTokens: 100,
