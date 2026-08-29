@@ -24,6 +24,7 @@
     "esbuild@0.28.2": true
   },
   "dependencies": {
+    "openai": "^7.8.0",
     "zod": "^4.4.3"
   }
 }
