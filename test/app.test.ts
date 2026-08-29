@@ -15,6 +15,12 @@ import {
   DefaultReviewController,
 } from "../src/controllers/review-controller.js";
 import {
+  DefaultGitHubReviewController,
+} from "../src/controllers/github-review-controller.js";
+import {
+  parseCiEvidence,
+} from "../src/dto/ci-evidence.js";
+import {
   parseReviewResponse,
 } from "../src/dto/review-response.js";
 import {
@@ -71,6 +77,45 @@ const reviewController =
     },
   });
 
+let githubCollectionCalls = 0;
+
+const githubReviewController =
+  new DefaultGitHubReviewController({
+    evidenceCollector: {
+      collect: (request) => {
+        githubCollectionCalls += 1;
+
+        return Promise.resolve(
+          parseCiEvidence({
+            provider:
+              "GITHUB_ACTIONS",
+            workflowName:
+              "Continuous Integration",
+            runId: request.runId,
+            runAttempt: 1,
+            conclusion: "failure",
+            jobs: [
+              {
+                jobId: 101,
+                name: "quality",
+                conclusion: "failure",
+                steps: [
+                  {
+                    number: 4,
+                    name: "Test",
+                    conclusion:
+                      "failure",
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+      },
+    },
+    reviewController,
+  });
+
 const server = createServer(
   createRequestHandler(
     {
@@ -81,6 +126,7 @@ const server = createServer(
     createFailureSimulator(2),
     {
       reviewController,
+      githubReviewController,
       authenticateReviewRequest:
         createReviewApiKeyAuthenticator(
           reviewApiKey,
@@ -480,6 +526,193 @@ test("POST /reviews investigates GitHub Actions failures without exposing logs",
     ),
     false,
   );
+});
+
+test("POST /github/reviews collects authoritative GitHub evidence", async () => {
+  const request = createReviewRequest();
+
+  const response = await fetch(
+    `${baseUrl}/github/reviews`,
+    {
+      method: "POST",
+      headers: {
+        authorization:
+          `Bearer ${reviewApiKey}`,
+        "content-type":
+          "application/json",
+      },
+      body: JSON.stringify({
+        ...request,
+        github: {
+          runId: 33_271_855_575,
+        },
+      }),
+    },
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(
+    response.headers.get(
+      "cache-control",
+    ),
+    "no-store",
+  );
+
+  const review = parseReviewResponse(
+    await response.json(),
+  );
+
+  assert.equal(
+    review.ciInvestigation?.runId,
+    33_271_855_575,
+  );
+  assert.equal(
+    review.ciInvestigation?.outcome,
+    "FAILED",
+  );
+  assert.deepEqual(
+    review.policyOverrides,
+    [
+      "CI_FAILED",
+    ],
+  );
+  assert.equal(review.decision, "BLOCK");
+  assert.equal(
+    JSON.stringify(review).includes(
+      "logExcerpt",
+    ),
+    false,
+  );
+});
+
+test("POST /github/reviews authenticates before GitHub collection", async () => {
+  const callsBefore =
+    githubCollectionCalls;
+
+  const response = await fetch(
+    `${baseUrl}/github/reviews`,
+    {
+      method: "POST",
+      headers: {
+        "content-type":
+          "application/json",
+      },
+      body: JSON.stringify({
+        ...createReviewRequest(),
+        github: {
+          runId: 33_271_855_575,
+        },
+      }),
+    },
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(
+    githubCollectionCalls,
+    callsBefore,
+  );
+});
+
+test("GET /github/reviews returns method not allowed", async () => {
+  const response = await fetch(
+    `${baseUrl}/github/reviews`,
+  );
+
+  assert.equal(response.status, 405);
+  assert.equal(
+    response.headers.get("allow"),
+    "POST",
+  );
+});
+
+test("POST /github/reviews is unavailable when GitHub App collection is disabled", async () => {
+  const disabledServer = createServer(
+    createRequestHandler(
+      {
+        channel: "local",
+        commitSha: "abc123",
+        version: "1.2.3",
+      },
+      createFailureSimulator(0),
+      {
+        reviewController,
+        authenticateReviewRequest:
+          createReviewApiKeyAuthenticator(
+            reviewApiKey,
+          ),
+      },
+    ),
+  );
+
+  await new Promise<void>(
+    (resolve, reject) => {
+      disabledServer.once(
+        "error",
+        reject,
+      );
+      disabledServer.listen(
+        0,
+        "127.0.0.1",
+        () => {
+          disabledServer.off(
+            "error",
+            reject,
+          );
+          resolve();
+        },
+      );
+    },
+  );
+
+  try {
+    const address =
+      disabledServer.address();
+
+    assert.ok(
+      address !== null
+      && typeof address !== "string",
+    );
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/github/reviews`,
+      {
+        method: "POST",
+        headers: {
+          authorization:
+            `Bearer ${reviewApiKey}`,
+          "content-type":
+            "application/json",
+        },
+        body: "{}",
+      },
+    );
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(
+      await response.json(),
+      {
+        error: {
+          code:
+            "INTERNAL_SERVER_ERROR",
+          message:
+            "An unexpected server error occurred.",
+        },
+      },
+    );
+  } finally {
+    await new Promise<void>(
+      (resolve, reject) => {
+        disabledServer.close((error) => {
+          if (error !== undefined) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      },
+    );
+  }
 });
 
 test("POST /reviews rejects missing authentication", async () => {

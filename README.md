@@ -2,7 +2,7 @@
 
 CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a software change is safe to release, identifies possible failure risks, and selects an appropriate deployment strategy.
 
-The current MVP provides a secure `POST /reviews` API backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
+The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
 ## Current MVP status
 
@@ -15,6 +15,7 @@ The MVP:
 - processes reviews end to end
 - validates and sanitizes submitted release evidence
 - investigates bounded GitHub Actions workflow, job, step, and log-excerpt evidence
+- optionally collects completed workflow-run and exact-attempt job metadata through a least-privilege GitHub App
 - returns a structured CI investigation without returning raw logs
 - blocks failed tests and critical security findings
 - blocks authoritative failed CI conclusions even when aggregate test evidence says `passed`
@@ -78,10 +79,11 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `GET` | `/version` | Reports deployed release identity |
 | `GET` | `/work` | Exercises deterministic workload behavior |
 | `POST` | `/reviews` | Creates a release-risk review |
+| `POST` | `/github/reviews` | Collects GitHub Actions evidence and creates a review |
 
 ## Authentication
 
-`POST /reviews` requires a bearer token:
+Both review endpoints require a bearer token:
 
 ```http
 Authorization: Bearer <CANARYGUARD_API_KEY>
@@ -114,9 +116,11 @@ The public repository contains:
 
 Runtime secrets remain outside the repository in protected environment stores such as Render environment variables.
 
-The application never requires customer GitHub tokens, repository passwords, deploy keys, or private SSH keys for the current review API.
+The application never accepts customer GitHub tokens, GitHub App JWTs, installation tokens, repository passwords, deploy keys, or private SSH keys in an API request.
 
-The CI-investigator core accepts normalized caller-supplied evidence. It does not call GitHub APIs, download workflow logs, receive webhooks, or create Check Runs. Those authenticated operations remain deferred to the GitHub App milestone.
+The direct `/reviews` path continues to accept normalized caller-supplied CI evidence. The optional `/github/reviews` path creates its own short-lived GitHub App JWT, discovers the repository installation, requests a repository-scoped installation token with only `Actions: read`, and collects workflow-run and exact-attempt job metadata from GitHub.
+
+The GitHub App private key remains in a protected runtime environment. Generated JWTs and installation tokens are transient and are never returned, logged, persisted, or forwarded to the intelligence provider.
 
 When the OpenAI provider is enabled, the sanitized review request is submitted to OpenAI for analysis. Teams must enable this path only when they are authorized to process the submitted repository data through that provider.
 
@@ -233,6 +237,64 @@ The deterministic investigator classifies `failure`, `timed_out`, `action_requir
 
 The public response may include `ciInvestigation` with the workflow identity, outcome, counts, and affected jobs and steps. Raw `logExcerpt` values are never included in that response.
 
+## Collect evidence with a GitHub App
+
+GitHub App collection is disabled by default. When enabled, the server accepts a review request without `evidence.ci` and obtains the CI evidence directly from GitHub:
+
+```bash
+curl \
+  --request POST \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  --header "Content-Type: application/json" \
+  --data-binary @- \
+  http://127.0.0.1:3000/github/reviews <<'JSON'
+{
+  "repository": {
+    "owner": "RWAMBA",
+    "name": "the-autonomous-canary"
+  },
+  "change": {
+    "title": "Review an authenticated workflow run",
+    "description": "Bind collected CI evidence to this head commit.",
+    "baseSha": "3c4857c676c61f0ca6fca280c28ad6e0c400e44d",
+    "headSha": "42c3e7abfc89e50027866028a87a216177dcdd89",
+    "diff": "+export const githubAppEnabled = true;"
+  },
+  "evidence": {
+    "testStatus": "passed",
+    "securityFindings": []
+  },
+  "github": {
+    "runId": 33271855575
+  }
+}
+JSON
+```
+
+The server rejects:
+
+- caller-supplied CI evidence on this route
+- repositories where the app is not installed
+- suspended installations
+- incomplete workflow runs
+- workflow runs for another repository or head commit
+- jobs for another run or head commit
+- incomplete, oversized, or invalid GitHub API responses
+
+The collector does not download job logs. Job-log collection, webhook delivery, automatic event processing, and Check Run writes remain outside this milestone.
+
+### GitHub App permissions
+
+Create the GitHub App with only the repository permission `Actions: read`, then install it only on repositories that CanaryGuard may review. GitHub documents that repository-installation discovery uses an app JWT and that workflow-run and workflow-job reads accept installation tokens with `Actions: read`:
+
+- [Generating a GitHub App JWT](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)
+- [Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+- [Repository installation endpoint](https://docs.github.com/en/rest/apps/apps#get-a-repository-installation-for-the-authenticated-app)
+- [Workflow-run endpoints](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run)
+- [Workflow-job endpoints](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt)
+
+The implementation uses the versioned GitHub REST API header `2026-03-10`. It restricts each installation token to the requested repository and requests only `actions: read` even if the installation can access other repositories.
+
 ## Final deployment policy
 
 | Final condition | Decision | Strategy | Initial traffic |
@@ -274,7 +336,7 @@ A request exceeding the HTTP body limit receives:
 
 ### Strict DTO validation
 
-Zod validates request, intelligence, telemetry, and response structures.
+Zod validates request, GitHub provider, intelligence, telemetry, and response structures.
 
 Unknown fields are rejected. A caller cannot submit a trusted final decision inside the request.
 
@@ -327,6 +389,8 @@ The application does not persist response identifiers, prompts, raw provider out
 Client errors expose only controlled error codes and messages.
 
 Validation errors include sanitized field paths and issue codes. They do not include submitted values, stack traces, internal causes, prompts, or model output.
+
+GitHub provider errors do not expose provider response bodies, JWTs, installation tokens, private keys, or internal validation failures.
 
 ### Telemetry privacy
 
@@ -435,6 +499,51 @@ unset CANARYGUARD_INTELLIGENCE_PROVIDER
 
 Never paste the API key into documentation, terminal output, Git history, issue reports, screenshots, or chat messages.
 
+### GitHub provider selection
+
+| Environment variable | Requirement | Default |
+|---|---|---|
+| `CANARYGUARD_GITHUB_PROVIDER` | `DISABLED` or `APP` | `DISABLED` |
+| `GITHUB_APP_CLIENT_ID` | Required only with `APP` | None |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | Base64-encoded RSA private key; required only with `APP` | None |
+| `GITHUB_API_TIMEOUT_MS` | Integer from 1,000 to 30,000 | `10000` |
+
+Keep GitHub collection disabled when it is not required:
+
+```bash
+export CANARYGUARD_GITHUB_PROVIDER=DISABLED
+```
+
+For an intentional local GitHub App test, keep the downloaded PEM file outside the repository and load it without printing its contents:
+
+```bash
+set +x
+
+export CANARYGUARD_GITHUB_PROVIDER=APP
+export GITHUB_APP_CLIENT_ID='YOUR_GITHUB_APP_CLIENT_ID'
+
+GITHUB_APP_PRIVATE_KEY_BASE64="$(
+  base64 \
+    --wrap=0 \
+    /secure/path/to/github-app-private-key.pem
+)"
+export GITHUB_APP_PRIVATE_KEY_BASE64
+
+npm run dev
+```
+
+Starting the server does not call GitHub. A valid authenticated `POST /github/reviews` request performs the bounded GitHub API collection.
+
+After stopping the server, clear the credential material:
+
+```bash
+unset GITHUB_APP_PRIVATE_KEY_BASE64
+unset GITHUB_APP_CLIENT_ID
+unset CANARYGUARD_GITHUB_PROVIDER
+```
+
+Never commit, print, log, screenshot, or paste the private key or its base64 representation into chat, issue reports, or source files.
+
 ## Docker Compose
 
 Generate a temporary local API key:
@@ -467,13 +576,15 @@ docker compose down \
 
 Compose refuses to start when `CANARYGUARD_API_KEY` is missing or empty.
 
-### Compose intelligence provider
+### Compose provider configuration
 
-Docker Compose forwards the same provider configuration documented for local development.
+Docker Compose forwards the same intelligence and GitHub provider configuration documented for local development.
 
 The default remains `MOCK`. To use `OPENAI`, load `OPENAI_API_KEY` into the current shell with the hidden-input command above, set `CANARYGUARD_INTELLIGENCE_PROVIDER=OPENAI`, and then start the stack.
 
 Never write the OpenAI key into `compose.yaml`, `.env.example`, a committed `.env` file, or a Docker image.
+
+GitHub App collection remains `DISABLED` unless `CANARYGUARD_GITHUB_PROVIDER=APP` is explicitly set and both GitHub App credential variables are loaded into the current shell. Never write the GitHub private key or its base64 representation into Compose configuration or an image.
 
 ## Validation
 
@@ -495,8 +606,11 @@ The public continuous-integration job:
 
 - grants `GITHUB_TOKEN` only read access to repository contents
 - forces `CANARYGUARD_INTELLIGENCE_PROVIDER=MOCK`
+- forces `CANARYGUARD_GITHUB_PROVIDER=DISABLED`
 - removes `OPENAI_API_KEY` from the job environment
+- fails if GitHub App credential variables unexpectedly reach public CI
 - fails if an OpenAI key unexpectedly reaches the public validation job
+- performs no GitHub App API requests
 - performs no paid OpenAI requests
 
 The deployment job declares no GitHub repository permissions. Deployment credentials remain in protected environment stores and are not required by pull-request validation, including validation triggered from forks.
@@ -519,6 +633,16 @@ CANARYGUARD_INTELLIGENCE_PROVIDER=MOCK
 
 For the real provider, configure `CANARYGUARD_INTELLIGENCE_PROVIDER=OPENAI` and store `OPENAI_API_KEY` as a Render secret. The timeout, retry, and maximum-output settings may be configured with their documented environment-variable names.
 
+GitHub App collection should remain disabled until the app is registered and installed. To enable it, configure:
+
+```text
+CANARYGUARD_GITHUB_PROVIDER=APP
+GITHUB_APP_CLIENT_ID=<GitHub App client ID>
+GITHUB_APP_PRIVATE_KEY_BASE64=<base64-encoded GitHub App RSA private key>
+```
+
+Store the private key value as a Render secret. `GITHUB_API_TIMEOUT_MS` may be set within the documented bounds.
+
 Do not store production secrets in GitHub source files, workflow definitions, Docker configuration, build arguments, or container layers.
 
 Render supplies `RENDER_GIT_COMMIT`, which the application uses to report the exact deployed revision through `/version`.
@@ -536,10 +660,12 @@ The deployment workflow:
 ```text
 src/
 ├── controllers/
+│   ├── github-review-controller.ts
 │   └── review-controller.ts
 ├── dto/
 │   ├── ci-evidence.ts
 │   ├── ci-investigation.ts
+│   ├── github-review-request.ts
 │   ├── review-request.ts
 │   └── review-response.ts
 ├── engines/
@@ -556,6 +682,10 @@ src/
 │   │   ├── openai-intelligence-engine.ts
 │   │   └── review-prompt.ts
 │   └── policy/
+├── github/
+│   ├── github-api-client.ts
+│   ├── github-app-config.ts
+│   └── github-app-jwt.ts
 ├── middleware/
 │   ├── http-error.ts
 │   ├── read-json-body.ts
@@ -572,12 +702,13 @@ The current MVP intentionally has these limitations:
 
 - `MOCK` remains the default provider; `OPENAI` requires explicit runtime configuration
 - public CI validates the OpenAI adapter through mocked SDK contracts rather than paid provider calls
-- CI evidence is caller-supplied; authenticated GitHub API collection is not implemented
+- `/reviews` CI evidence remains caller-supplied; `/github/reviews` supports authenticated GitHub metadata collection
+- the GitHub App adapter collects workflow and job metadata but does not download logs
 - reviews are not stored in a database
 - authentication uses one service-level API key
 - tenant accounts and role-based authorization are not implemented
 - request quotas and distributed rate limiting are not implemented
-- GitHub App and webhook automation are not implemented
+- GitHub webhooks, automatic event processing, and Check Run writes are not implemented
 - predictions are not yet correlated with deployment outcomes
 - deployment actions are recommended but not automatically executed by the Review API
 
