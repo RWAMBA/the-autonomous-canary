@@ -2,6 +2,10 @@ import {
   z,
 } from "zod";
 
+import {
+  ciInvestigationSchema,
+} from "./ci-investigation.js";
+
 const gitShaPattern = /^[a-f0-9]{7,64}$/i;
 const repositoryPartPattern = /^[a-z0-9._-]+$/i;
 const reviewCodePattern = /^[A-Z0-9_]+$/;
@@ -129,6 +133,8 @@ const commonReviewResponseFields = {
   policyOverrides: z
     .array(reviewCodeSchema)
     .max(50),
+  ciInvestigation:
+    ciInvestigationSchema.optional(),
   analysis: z
     .object({
       provider: z.enum([

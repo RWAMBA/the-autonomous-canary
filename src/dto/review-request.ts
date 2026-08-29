@@ -2,6 +2,10 @@ import {
   z,
 } from "zod";
 
+import {
+  ciEvidenceSchema,
+} from "./ci-evidence.js";
+
 export const maximumDiffLength = 200_000;
 export const maximumSecurityFindings = 100;
 
@@ -95,6 +99,7 @@ export const reviewRequestSchema = z
           .array(securityFindingSchema)
           .max(maximumSecurityFindings)
           .default([]),
+        ci: ciEvidenceSchema.optional(),
       })
       .strict(),
   })

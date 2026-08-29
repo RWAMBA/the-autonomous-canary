@@ -4,6 +4,12 @@ import {
 } from "node:test";
 
 import {
+  parseCiEvidence,
+} from "../../src/dto/ci-evidence.js";
+import type {
+  CiEvidenceDto,
+} from "../../src/dto/ci-evidence.js";
+import {
   parseReviewRequest,
 } from "../../src/dto/review-request.js";
 import type {
@@ -33,6 +39,7 @@ function createRequest(
   securityFindings: ReviewRequestDto[
     "evidence"
   ]["securityFindings"] = [],
+  ci?: CiEvidenceDto,
 ): ReviewRequestDto {
   return parseReviewRequest({
     repository: {
@@ -51,7 +58,43 @@ function createRequest(
     evidence: {
       testStatus,
       securityFindings,
+      ...(
+        ci === undefined
+          ? {}
+          : {
+              ci,
+            }
+      ),
     },
+  });
+}
+
+function createCiEvidence(
+  conclusion:
+    | "failure"
+    | "cancelled",
+): CiEvidenceDto {
+  return parseCiEvidence({
+    provider: "GITHUB_ACTIONS",
+    workflowName:
+      "Continuous Integration",
+    runId: 33_262_408_116,
+    runAttempt: 1,
+    conclusion,
+    jobs: [
+      {
+        jobId: 101,
+        name: "quality",
+        conclusion,
+        steps: [
+          {
+            number: 4,
+            name: "Test",
+            conclusion,
+          },
+        ],
+      },
+    ],
   });
 }
 
@@ -83,7 +126,7 @@ function createIntelligenceResult(
     telemetry: {
       provider: "MOCK",
       modelTarget: "mock-canaryguard-v1",
-      promptVersion: "canaryguard-review-v1",
+      promptVersion: "canaryguard-review-v2",
       inputTokens: 15,
       outputTokens: 5,
       totalTokens: 20,
@@ -139,7 +182,7 @@ test("continues a clean low-risk release at full traffic", () => {
   assert.deepEqual(result.analysis, {
     provider: "MOCK",
     modelTarget: "mock-canaryguard-v1",
-    promptVersion: "canaryguard-review-v1",
+    promptVersion: "canaryguard-review-v2",
   });
 });
 
@@ -243,6 +286,78 @@ test("a critical security finding overrides AI continuation", () => {
     strategy: "BLOCKED",
     initialTrafficPercent: 0,
   });
+});
+
+test("failed CI evidence overrides AI continuation and exposes a log-free investigation", () => {
+  const result = evaluate(
+    createRequest(
+      "passed",
+      [],
+      createCiEvidence("failure"),
+    ),
+    createIntelligenceResult({
+      advisoryDecision: "CONTINUE",
+      riskScore: 5,
+      riskLevel: "LOW",
+    }),
+  );
+
+  assert.equal(
+    result.decision,
+    "BLOCK",
+  );
+  assert.deepEqual(
+    result.policyOverrides,
+    [
+      "CI_FAILED",
+    ],
+  );
+  assert.equal(
+    result.ciInvestigation?.outcome,
+    "FAILED",
+  );
+  assert.ok(
+    result.requiredActions.includes(
+      "Repair the failed GitHub Actions jobs or steps and submit a completed successful run.",
+    ),
+  );
+  assert.equal(
+    JSON.stringify(
+      result.ciInvestigation,
+    ).includes("logExcerpt"),
+    false,
+  );
+});
+
+test("incomplete CI evidence forces high-risk canary routing without blocking", () => {
+  const result = evaluate(
+    createRequest(
+      "passed",
+      [],
+      createCiEvidence("cancelled"),
+    ),
+    createIntelligenceResult({
+      riskScore: 5,
+      riskLevel: "LOW",
+    }),
+  );
+
+  assert.equal(
+    result.decision,
+    "CONTINUE",
+  );
+  assert.deepEqual(result.risk, {
+    score: 70,
+    level: "HIGH",
+  });
+  assert.deepEqual(result.deployment, {
+    strategy: "CANARY",
+    initialTrafficPercent: 5,
+  });
+  assert.deepEqual(
+    result.policyOverrides,
+    [],
+  );
 });
 
 test("preserves a cautious AI block recommendation", () => {

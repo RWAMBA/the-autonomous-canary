@@ -229,6 +229,90 @@ test("sanitizes descriptive and finding fields", () => {
   assert.equal(result.totalRedactions, 3);
 });
 
+test("sanitizes CI workflow metadata and log excerpts", () => {
+  const request = parseReviewRequest({
+    repository: {
+      owner: "RWAMBA",
+      name: "the-autonomous-canary",
+    },
+    change: {
+      title: "Review a CI failure",
+      baseSha: "abcdef1234567890",
+      headSha: "1234567890abcdef",
+      diff:
+        "+export const enabled = true;",
+    },
+    evidence: {
+      testStatus: "failed",
+      securityFindings: [],
+      ci: {
+        provider: "GITHUB_ACTIONS",
+        workflowName:
+          `CI ${fakeGitHubToken}`,
+        runId: 33_262_408_116,
+        runAttempt: 1,
+        conclusion: "failure",
+        jobs: [
+          {
+            jobId: 101,
+            name:
+              `quality ${fakeOpenAiKey}`,
+            conclusion: "failure",
+            steps: [
+              {
+                number: 4,
+                name: "Test",
+                conclusion: "failure",
+                logExcerpt: [
+                  `Authorization: Bearer ${fakeBearerToken}`,
+                  `password=${fakePassword}`,
+                ].join("\n"),
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+
+  const originalRequest =
+    JSON.stringify(request);
+  const result =
+    sanitizeReviewRequest(request);
+  const sanitizedCi =
+    result.sanitizedRequest.evidence.ci;
+
+  assert.ok(sanitizedCi);
+  assert.equal(
+    JSON.stringify(request),
+    originalRequest,
+  );
+  assert.equal(
+    JSON.stringify(sanitizedCi)
+      .includes(fakeGitHubToken),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(sanitizedCi)
+      .includes(fakeOpenAiKey),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(sanitizedCi)
+      .includes(fakeBearerToken),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(sanitizedCi)
+      .includes(fakePassword),
+    false,
+  );
+  assert.equal(
+    result.totalRedactions,
+    4,
+  );
+});
+
 test("preserves absent optional fields", () => {
   const request = parseReviewRequest({
     repository: {

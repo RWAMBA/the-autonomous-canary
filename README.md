@@ -14,7 +14,10 @@ The MVP:
 - consumes no paid model tokens while `MOCK` is selected
 - processes reviews end to end
 - validates and sanitizes submitted release evidence
+- investigates bounded GitHub Actions workflow, job, step, and log-excerpt evidence
+- returns a structured CI investigation without returning raw logs
 - blocks failed tests and critical security findings
+- blocks authoritative failed CI conclusions even when aggregate test evidence says `passed`
 - records structured intelligence telemetry
 - supports authenticated local, Docker, CI, and Render execution
 
@@ -113,6 +116,8 @@ Runtime secrets remain outside the repository in protected environment stores su
 
 The application never requires customer GitHub tokens, repository passwords, deploy keys, or private SSH keys for the current review API.
 
+The CI-investigator core accepts normalized caller-supplied evidence. It does not call GitHub APIs, download workflow logs, receive webhooks, or create Check Runs. Those authenticated operations remain deferred to the GitHub App milestone.
+
 When the OpenAI provider is enabled, the sanitized review request is submitted to OpenAI for analysis. Teams must enable this path only when they are authorized to process the submitted repository data through that provider.
 
 ## Create a review
@@ -167,7 +172,7 @@ Example successful review:
   "analysis": {
     "provider": "MOCK",
     "modelTarget": "mock-canaryguard-v1",
-    "promptVersion": "canaryguard-review-v1"
+    "promptVersion": "canaryguard-review-v2"
   },
   "decision": "CONTINUE",
   "deployment": {
@@ -177,19 +182,72 @@ Example successful review:
 }
 ```
 
+## Submit GitHub Actions evidence
+
+The optional `evidence.ci` object carries a completed, normalized GitHub Actions investigation envelope:
+
+```json
+{
+  "evidence": {
+    "testStatus": "failed",
+    "securityFindings": [],
+    "ci": {
+      "provider": "GITHUB_ACTIONS",
+      "workflowName": "Continuous Integration",
+      "runId": 33262408116,
+      "runAttempt": 1,
+      "conclusion": "failure",
+      "jobs": [
+        {
+          "jobId": 101,
+          "name": "quality",
+          "conclusion": "failure",
+          "steps": [
+            {
+              "number": 4,
+              "name": "Test",
+              "conclusion": "failure",
+              "logExcerpt": "AssertionError: expected 201"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Supported terminal conclusions are:
+
+- `success`
+- `failure`
+- `neutral`
+- `cancelled`
+- `skipped`
+- `timed_out`
+- `action_required`
+- `stale`
+- `startup_failure`
+
+The deterministic investigator classifies `failure`, `timed_out`, `action_required`, and `startup_failure` as failed. It classifies `neutral`, `cancelled`, `skipped`, and `stale` as incomplete. A failed workflow or job creates the blocking rule `CI_FAILED`; incomplete evidence creates a nonblocking high-risk `CI_INCOMPLETE` finding.
+
+The public response may include `ciInvestigation` with the workflow identity, outcome, counts, and affected jobs and steps. Raw `logExcerpt` values are never included in that response.
+
 ## Final deployment policy
 
 | Final condition | Decision | Strategy | Initial traffic |
 |---|---|---|---:|
 | Failed automated tests | `BLOCK` | `BLOCKED` | 0% |
+| Failed GitHub Actions workflow or job | `BLOCK` | `BLOCKED` | 0% |
 | Critical security finding | `BLOCK` | `BLOCKED` | 0% |
 | Advisory intelligence block | `BLOCK` | `BLOCKED` | 0% |
 | Critical combined risk | `BLOCK` | `BLOCKED` | 0% |
 | High risk without a blocking rule | `CONTINUE` | `CANARY` | 5% |
+| Incomplete CI evidence | `CONTINUE` | `CANARY` | 5% |
 | Medium risk | `CONTINUE` | `CANARY` | 10% |
 | Low risk | `CONTINUE` | `STANDARD` | 100% |
 
-The AI recommendation cannot override failed tests, critical security findings, or critical final risk.
+The AI recommendation cannot override failed tests, failed CI evidence, critical security findings, or critical final risk.
 
 ## Safety controls
 
@@ -198,6 +256,15 @@ The AI recommendation cannot override failed tests, critical security findings, 
 The HTTP request body is limited to 256 KiB.
 
 The Git diff is limited to 200,000 characters.
+
+CI evidence is limited to:
+
+- 50 jobs per workflow run
+- 100 steps per job
+- 8,000 characters per log excerpt
+- 40,000 combined log-excerpt characters
+
+Job identifiers must be unique within a workflow run, and step numbers must be unique within a job.
 
 A request exceeding the HTTP body limit receives:
 
@@ -231,13 +298,15 @@ Supported categories include:
 - bearer tokens
 - likely secret assignments
 
+Workflow names, job names, step names, and CI log excerpts pass through the same sanitizer before deterministic or intelligence analysis.
+
 Sanitization creates a copy and does not mutate the validated request.
 
 ### Prompt isolation
 
 The OpenAI prompt contract separates trusted system instructions from untrusted review data.
 
-Submitted repository names, titles, descriptions, findings, file paths, and Git diffs have no instruction authority.
+Submitted repository names, titles, descriptions, findings, file paths, Git diffs, CI metadata, and CI log excerpts have no instruction authority.
 
 Text such as:
 
@@ -286,6 +355,7 @@ Telemetry excludes:
 - prompt content
 - raw model output
 - submitted request bodies
+- CI log excerpts
 
 `estimatedCostUsd` is an operational estimate calculated from the versioned pricing assumptions encoded in the repository. It is not an OpenAI invoice or authoritative billing record.
 
@@ -468,9 +538,13 @@ src/
 ├── controllers/
 │   └── review-controller.ts
 ├── dto/
+│   ├── ci-evidence.ts
+│   ├── ci-investigation.ts
 │   ├── review-request.ts
 │   └── review-response.ts
 ├── engines/
+│   ├── ci/
+│   │   └── ci-investigator.ts
 │   ├── deterministic/
 │   ├── intelligence/
 │   │   ├── intelligence-engine.ts
@@ -498,6 +572,7 @@ The current MVP intentionally has these limitations:
 
 - `MOCK` remains the default provider; `OPENAI` requires explicit runtime configuration
 - public CI validates the OpenAI adapter through mocked SDK contracts rather than paid provider calls
+- CI evidence is caller-supplied; authenticated GitHub API collection is not implemented
 - reviews are not stored in a database
 - authentication uses one service-level API key
 - tenant accounts and role-based authorization are not implemented

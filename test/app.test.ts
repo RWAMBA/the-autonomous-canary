@@ -330,7 +330,7 @@ test("POST /reviews processes a valid release review", async () => {
       modelTarget:
         "mock-canaryguard-v1",
       promptVersion:
-        "canaryguard-review-v1",
+        "canaryguard-review-v2",
     },
   );
 });
@@ -390,6 +390,95 @@ test("POST /reviews blocks failed tests despite mock AI continuation", async () 
         finding.code
           === "TESTS_FAILED",
     ),
+  );
+});
+
+test("POST /reviews investigates GitHub Actions failures without exposing logs", async () => {
+  const request = createReviewRequest();
+  const fakeGitHubToken =
+    "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+
+  const response =
+    await fetch(
+      `${baseUrl}/reviews`,
+      {
+        method: "POST",
+        headers: {
+          authorization:
+            `Bearer ${reviewApiKey}`,
+          "content-type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          ...request,
+          evidence: {
+            ...request.evidence,
+            ci: {
+              provider:
+                "GITHUB_ACTIONS",
+              workflowName:
+                "Continuous Integration",
+              runId: 33_262_408_116,
+              runAttempt: 1,
+              conclusion: "failure",
+              jobs: [
+                {
+                  jobId: 101,
+                  name: "quality",
+                  conclusion: "failure",
+                  steps: [
+                    {
+                      number: 4,
+                      name: "Test",
+                      conclusion:
+                        "failure",
+                      logExcerpt:
+                        `token=${fakeGitHubToken}`,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+  assert.equal(
+    response.status,
+    201,
+  );
+
+  const review =
+    parseReviewResponse(
+      await response.json(),
+    );
+
+  assert.equal(
+    review.decision,
+    "BLOCK",
+  );
+  assert.deepEqual(
+    review.policyOverrides,
+    [
+      "CI_FAILED",
+    ],
+  );
+  assert.equal(
+    review.ciInvestigation?.outcome,
+    "FAILED",
+  );
+  assert.equal(
+    JSON.stringify(review).includes(
+      fakeGitHubToken,
+    ),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(review).includes(
+      "logExcerpt",
+    ),
+    false,
   );
 });
 

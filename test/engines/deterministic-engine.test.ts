@@ -4,6 +4,12 @@ import {
 } from "node:test";
 
 import {
+  parseCiEvidence,
+} from "../../src/dto/ci-evidence.js";
+import type {
+  CiEvidenceDto,
+} from "../../src/dto/ci-evidence.js";
+import {
   parseReviewRequest,
 } from "../../src/dto/review-request.js";
 import {
@@ -33,6 +39,37 @@ interface RequestOptions {
   readonly testStatus?: TestStatus;
   readonly securityFindings?:
     readonly SecurityFindingInput[];
+  readonly ci?: CiEvidenceDto;
+}
+
+function createCiEvidence(
+  conclusion:
+    | "success"
+    | "failure"
+    | "cancelled",
+): CiEvidenceDto {
+  return parseCiEvidence({
+    provider: "GITHUB_ACTIONS",
+    workflowName:
+      "Continuous Integration",
+    runId: 33_262_408_116,
+    runAttempt: 1,
+    conclusion,
+    jobs: [
+      {
+        jobId: 101,
+        name: "quality",
+        conclusion,
+        steps: [
+          {
+            number: 4,
+            name: "Test",
+            conclusion,
+          },
+        ],
+      },
+    ],
+  });
 }
 
 function createRequest(
@@ -54,6 +91,13 @@ function createRequest(
         options.testStatus ?? "passed",
       securityFindings:
         options.securityFindings ?? [],
+      ...(
+        options.ci === undefined
+          ? {}
+          : {
+              ci: options.ci,
+            }
+      ),
     },
   });
 }
@@ -160,6 +204,82 @@ test("marks a critical security finding as blocking", () => {
     [
       "SECURITY_FINDING_CRITICAL",
     ],
+  );
+});
+
+test("blocks failed GitHub Actions evidence even when aggregate tests say passed", () => {
+  const engine = new DefaultDeterministicEngine();
+
+  const assessment = engine.analyze(
+    createRequest({
+      testStatus: "passed",
+      ci: createCiEvidence("failure"),
+    }),
+  );
+
+  assert.equal(
+    assessment.ciInvestigation?.outcome,
+    "FAILED",
+  );
+  assert.equal(
+    assessment.findings[0]?.code,
+    "CI_FAILED",
+  );
+  assert.equal(
+    assessment.findings[0]?.severity,
+    "CRITICAL",
+  );
+  assert.deepEqual(
+    assessment.blockingRuleCodes,
+    [
+      "CI_FAILED",
+    ],
+  );
+});
+
+test("raises the risk signal for incomplete CI without automatically blocking", () => {
+  const engine = new DefaultDeterministicEngine();
+
+  const assessment = engine.analyze(
+    createRequest({
+      ci: createCiEvidence("cancelled"),
+    }),
+  );
+
+  assert.equal(
+    assessment.ciInvestigation?.outcome,
+    "INCOMPLETE",
+  );
+  assert.equal(
+    assessment.findings[0]?.code,
+    "CI_INCOMPLETE",
+  );
+  assert.equal(
+    assessment.findings[0]?.severity,
+    "HIGH",
+  );
+  assert.deepEqual(
+    assessment.blockingRuleCodes,
+    [],
+  );
+});
+
+test("records successful CI without adding a finding", () => {
+  const engine = new DefaultDeterministicEngine();
+
+  const assessment = engine.analyze(
+    createRequest({
+      ci: createCiEvidence("success"),
+    }),
+  );
+
+  assert.equal(
+    assessment.ciInvestigation?.outcome,
+    "PASSED",
+  );
+  assert.deepEqual(
+    assessment.findings,
+    [],
   );
 });
 

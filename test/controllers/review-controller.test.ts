@@ -39,6 +39,7 @@ function createValidInput(
     | "unknown" = "passed",
   diff =
     "+export const reviewEnabled = true;",
+  ci?: unknown,
 ) {
   return {
     repository: {
@@ -56,6 +57,13 @@ function createValidInput(
     evidence: {
       testStatus,
       securityFindings: [],
+      ...(
+        ci === undefined
+          ? {}
+          : {
+              ci,
+            }
+      ),
     },
   };
 }
@@ -190,10 +198,36 @@ test("blocks failed tests despite a mock continue recommendation", async () => {
 test("sends only sanitized copies to both analysis engines", async () => {
   const fakeApiKey =
     "sk-proj-abcdefghijklmnopqrstuvwxyz123456";
+  const fakeGitHubToken =
+    "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
 
   const input = createValidInput(
     "passed",
     `+OPENAI_API_KEY=${fakeApiKey}`,
+    {
+      provider: "GITHUB_ACTIONS",
+      workflowName:
+        "Continuous Integration",
+      runId: 33_262_408_116,
+      runAttempt: 1,
+      conclusion: "failure",
+      jobs: [
+        {
+          jobId: 101,
+          name: "quality",
+          conclusion: "failure",
+          steps: [
+            {
+              number: 4,
+              name: "Test",
+              conclusion: "failure",
+              logExcerpt:
+                `token=${fakeGitHubToken}`,
+            },
+          ],
+        },
+      ],
+    },
   );
 
   const originalInput =
@@ -274,6 +308,34 @@ test("sends only sanitized copies to both analysis engines", async () => {
       .diff
       .includes(
         "[REDACTED:OPENAI_API_KEY]",
+      ),
+    true,
+  );
+
+  const deterministicCi =
+    deterministicRequest.evidence.ci;
+  const intelligenceCi =
+    intelligenceRequest.evidence.ci;
+
+  assert.ok(deterministicCi);
+  assert.ok(intelligenceCi);
+
+  assert.equal(
+    JSON.stringify(deterministicCi)
+      .includes(fakeGitHubToken),
+    false,
+  );
+
+  assert.equal(
+    JSON.stringify(intelligenceCi)
+      .includes(fakeGitHubToken),
+    false,
+  );
+
+  assert.equal(
+    JSON.stringify(deterministicCi)
+      .includes(
+        "[REDACTED:GITHUB_TOKEN]",
       ),
     true,
   );
