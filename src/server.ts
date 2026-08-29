@@ -27,6 +27,12 @@ import {
   loadGitHubConfig,
 } from "./github/github-app-config.js";
 import {
+  loadGitHubWebhookConfig,
+} from "./github/github-webhook-config.js";
+import {
+  DefaultGitHubWebhookReceiver,
+} from "./github/github-webhook-receiver.js";
+import {
   createReviewApiKeyAuthenticator,
   loadReviewApiKey,
 } from "./middleware/require-review-api-key.js";
@@ -93,6 +99,17 @@ const githubReviewController =
         reviewController,
       });
 
+const githubWebhookConfig =
+  loadGitHubWebhookConfig();
+
+const githubWebhookReceiver =
+  githubWebhookConfig.provider
+    === "DISABLED"
+    ? undefined
+    : new DefaultGitHubWebhookReceiver(
+        githubWebhookConfig,
+      );
+
 const requestHandler =
   createRequestHandler(
     loadReleaseMetadata(),
@@ -106,6 +123,14 @@ const requestHandler =
           ? {}
           : {
               githubReviewController,
+            }
+      ),
+      ...(
+        githubWebhookReceiver
+          === undefined
+          ? {}
+          : {
+              githubWebhookReceiver,
             }
       ),
     },

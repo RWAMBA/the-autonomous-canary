@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  createHmac,
+} from "node:crypto";
+import {
   createServer,
 } from "node:http";
 import {
@@ -21,11 +24,22 @@ import {
   parseCiEvidence,
 } from "../src/dto/ci-evidence.js";
 import {
+  parseGitHubWebhookReceipt,
+} from "../src/dto/github-webhook.js";
+import {
   parseReviewResponse,
 } from "../src/dto/review-response.js";
 import {
   createFailureSimulator,
 } from "../src/failure-simulator.js";
+import {
+  githubWebhookProviderEnvironmentVariable,
+  githubWebhookSecretEnvironmentVariable,
+  loadGitHubWebhookConfig,
+} from "../src/github/github-webhook-config.js";
+import {
+  DefaultGitHubWebhookReceiver,
+} from "../src/github/github-webhook-receiver.js";
 import {
   maximumJsonBodyBytes,
 } from "../src/middleware/read-json-body.js";
@@ -38,6 +52,9 @@ const reviewApiKey =
 
 const reviewId =
   "123e4567-e89b-42d3-a456-426614174000";
+
+const githubWebhookSecret =
+  "application-webhook-test-secret-000000";
 
 function createReviewRequest(
   testStatus:
@@ -116,6 +133,95 @@ const githubReviewController =
     reviewController,
   });
 
+function createGitHubWebhookReceiver() {
+  const config = loadGitHubWebhookConfig({
+    [githubWebhookProviderEnvironmentVariable]:
+      "GITHUB",
+    [githubWebhookSecretEnvironmentVariable]:
+      githubWebhookSecret,
+  });
+
+  if (config.provider !== "GITHUB") {
+    throw new Error(
+      "Expected enabled webhook configuration.",
+    );
+  }
+
+  return new DefaultGitHubWebhookReceiver(
+    config,
+    {
+      logger: {
+        log: () => undefined,
+      },
+    },
+  );
+}
+
+function createGitHubWebhookPayload(
+  action:
+    | "completed"
+    | "in_progress" = "completed",
+) {
+  const completed =
+    action === "completed";
+
+  return {
+    action,
+    installation: {
+      id: 15_758_562,
+    },
+    repository: {
+      id: 101,
+      full_name:
+        "RWAMBA/the-autonomous-canary",
+      name:
+        "the-autonomous-canary",
+      owner: {
+        login: "RWAMBA",
+      },
+    },
+    workflow_run: {
+      id: 33_273_782_416,
+      name:
+        "Continuous Integration",
+      status: completed
+        ? "completed"
+        : "in_progress",
+      conclusion: completed
+        ? "success"
+        : null,
+      run_attempt: 1,
+      head_sha:
+        "1ca9fd52769fe3d4e60e02e02d8fe73f1e91f45a",
+      head_commit: {
+        id:
+          "1ca9fd52769fe3d4e60e02e02d8fe73f1e91f45a",
+      },
+      repository: {
+        id: 101,
+        full_name:
+          "RWAMBA/the-autonomous-canary",
+        name:
+          "the-autonomous-canary",
+        owner: {
+          login: "RWAMBA",
+        },
+      },
+    },
+  };
+}
+
+function signGitHubWebhookBody(
+  body: string,
+): string {
+  return `sha256=${createHmac(
+    "sha256",
+    githubWebhookSecret,
+  )
+    .update(body)
+    .digest("hex")}`;
+}
+
 const server = createServer(
   createRequestHandler(
     {
@@ -127,6 +233,8 @@ const server = createServer(
     {
       reviewController,
       githubReviewController,
+      githubWebhookReceiver:
+        createGitHubWebhookReceiver(),
       authenticateReviewRequest:
         createReviewApiKeyAuthenticator(
           reviewApiKey,
@@ -680,6 +788,235 @@ test("POST /github/reviews is unavailable when GitHub App collection is disabled
         headers: {
           authorization:
             `Bearer ${reviewApiKey}`,
+          "content-type":
+            "application/json",
+        },
+        body: "{}",
+      },
+    );
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(
+      await response.json(),
+      {
+        error: {
+          code:
+            "INTERNAL_SERVER_ERROR",
+          message:
+            "An unexpected server error occurred.",
+        },
+      },
+    );
+  } finally {
+    await new Promise<void>(
+      (resolve, reject) => {
+        disabledServer.close((error) => {
+          if (error !== undefined) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      },
+    );
+  }
+});
+
+test("POST /github/webhooks accepts a signed completed workflow_run without bearer authentication", async () => {
+  const body = JSON.stringify(
+    createGitHubWebhookPayload(),
+  );
+
+  const response = await fetch(
+    `${baseUrl}/github/webhooks`,
+    {
+      method: "POST",
+      headers: {
+        "content-type":
+          "application/json",
+        "x-github-event":
+          "workflow_run",
+        "x-github-delivery":
+          "11111111-2222-3333-4444-555555555555",
+        "x-hub-signature-256":
+          signGitHubWebhookBody(body),
+      },
+      body,
+    },
+  );
+
+  assert.equal(response.status, 202);
+  assert.equal(
+    response.headers.get(
+      "cache-control",
+    ),
+    "no-store",
+  );
+
+  const receipt =
+    parseGitHubWebhookReceipt(
+      await response.json(),
+    );
+
+  assert.equal(
+    receipt.status,
+    "ACCEPTED",
+  );
+  assert.equal(
+    receipt.workflowRun.id,
+    33_273_782_416,
+  );
+});
+
+test("POST /github/webhooks acknowledges and ignores a signed noncompleted run", async () => {
+  const body = JSON.stringify(
+    createGitHubWebhookPayload(
+      "in_progress",
+    ),
+  );
+
+  const response = await fetch(
+    `${baseUrl}/github/webhooks`,
+    {
+      method: "POST",
+      headers: {
+        "content-type":
+          "application/json",
+        "x-github-event":
+          "workflow_run",
+        "x-github-delivery":
+          "22222222-3333-4444-5555-666666666666",
+        "x-hub-signature-256":
+          signGitHubWebhookBody(body),
+      },
+      body,
+    },
+  );
+
+  assert.equal(response.status, 202);
+
+  const receipt =
+    parseGitHubWebhookReceipt(
+      await response.json(),
+    );
+
+  assert.equal(
+    receipt.status,
+    "IGNORED",
+  );
+  assert.equal(
+    receipt.reason,
+    "WORKFLOW_RUN_NOT_COMPLETED",
+  );
+});
+
+test("POST /github/webhooks rejects an invalid signature without a bearer challenge", async () => {
+  const response = await fetch(
+    `${baseUrl}/github/webhooks`,
+    {
+      method: "POST",
+      headers: {
+        "content-type":
+          "application/json",
+        "x-github-event":
+          "workflow_run",
+        "x-github-delivery":
+          "33333333-4444-5555-6666-777777777777",
+        "x-hub-signature-256":
+          `sha256=${"0".repeat(64)}`,
+      },
+      body: JSON.stringify(
+        createGitHubWebhookPayload(),
+      ),
+    },
+  );
+
+  assert.equal(response.status, 403);
+  assert.equal(
+    response.headers.get(
+      "www-authenticate",
+    ),
+    null,
+  );
+  assert.deepEqual(
+    await response.json(),
+    {
+      error: {
+        code:
+          "INVALID_GITHUB_WEBHOOK_SIGNATURE",
+        message:
+          "The GitHub webhook signature is invalid.",
+      },
+    },
+  );
+});
+
+test("GET /github/webhooks returns method not allowed", async () => {
+  const response = await fetch(
+    `${baseUrl}/github/webhooks`,
+  );
+
+  assert.equal(response.status, 405);
+  assert.equal(
+    response.headers.get("allow"),
+    "POST",
+  );
+});
+
+test("POST /github/webhooks is unavailable when webhook ingestion is disabled", async () => {
+  const disabledServer = createServer(
+    createRequestHandler(
+      {
+        channel: "local",
+        commitSha: "abc123",
+        version: "1.2.3",
+      },
+      createFailureSimulator(0),
+      {
+        reviewController,
+        authenticateReviewRequest:
+          createReviewApiKeyAuthenticator(
+            reviewApiKey,
+          ),
+      },
+    ),
+  );
+
+  await new Promise<void>(
+    (resolve, reject) => {
+      disabledServer.once(
+        "error",
+        reject,
+      );
+      disabledServer.listen(
+        0,
+        "127.0.0.1",
+        () => {
+          disabledServer.off(
+            "error",
+            reject,
+          );
+          resolve();
+        },
+      );
+    },
+  );
+
+  try {
+    const address =
+      disabledServer.address();
+
+    assert.ok(
+      address !== null
+      && typeof address !== "string",
+    );
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/github/webhooks`,
+      {
+        method: "POST",
+        headers: {
           "content-type":
             "application/json",
         },
