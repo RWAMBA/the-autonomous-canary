@@ -1,9 +1,10 @@
-type ReleaseChannel = "stable" | "canary";
+import {
+  readCanaryTrafficPercent,
+  type CanaryTrafficPercent,
+  type RoutingMode,
+} from "../src/routing-mode.js";
 
-type RoutingMode =
-  | "canary"
-  | "promote"
-  | "rollback";
+type ReleaseChannel = "stable" | "canary";
 
 const gatewayUrl =
   process.env.GATEWAY_URL ?? "http://127.0.0.1:8080";
@@ -15,6 +16,12 @@ const sampleSize = readSampleSize(
 const expectedRoutingMode = readRoutingMode(
   process.env.EXPECTED_ROUTING_MODE,
 );
+
+const expectedCanaryTrafficPercent =
+  readCanaryTrafficPercent(
+    process.env
+      .EXPECTED_CANARY_TRAFFIC_PERCENT,
+  );
 
 function readSampleSize(value: string | undefined): number {
   const sampleSize = Number(value ?? "20");
@@ -111,19 +118,30 @@ function readChannel(payload: unknown): ReleaseChannel {
 function verifyRouting(
   routingMode: RoutingMode,
   counts: Record<ReleaseChannel, number>,
-  canaryShare: number,
+  canaryTrafficPercent:
+    CanaryTrafficPercent,
 ): void {
   if (routingMode === "canary") {
-    if (counts.stable === 0 || counts.canary === 0) {
+    const expectedCanaryRequests =
+      sampleSize
+      * canaryTrafficPercent
+      / 100;
+
+    if (!Number.isInteger(expectedCanaryRequests)) {
       throw new Error(
-        "Both stable and canary must receive traffic.",
+        "ROUTING_SAMPLE_SIZE must produce an integer expected canary count.",
       );
     }
 
-    if (canaryShare < 0.05 || canaryShare > 0.2) {
+    if (
+      counts.canary !== expectedCanaryRequests
+      || counts.stable
+        !== sampleSize
+          - expectedCanaryRequests
+    ) {
       throw new Error(
-        `Canary traffic share is outside the expected range: ${
-          canaryShare * 100
+        `Canary routing expected ${canaryTrafficPercent}% traffic but received ${
+          counts.canary / sampleSize * 100
         }%.`,
       );
     }
@@ -173,6 +191,7 @@ const canaryShare = counts.canary / sampleSize;
 console.log(JSON.stringify({
   gatewayUrl,
   expectedRoutingMode,
+  expectedCanaryTrafficPercent,
   sampleSize,
   counts,
   canaryPercentage: canaryShare * 100,
@@ -181,7 +200,7 @@ console.log(JSON.stringify({
 verifyRouting(
   expectedRoutingMode,
   counts,
-  canaryShare,
+  expectedCanaryTrafficPercent,
 );
 
 console.log(

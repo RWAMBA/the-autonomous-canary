@@ -15,7 +15,33 @@ const policy: CanaryPolicy = {
   minimumCanaryRequests: 1,
   maximumCanaryFailureRate: 0.1,
   maximumFailureRateIncrease: 0.1,
+  maximumCanaryLatencyMs: 100,
 };
+
+function createClock(
+  durationsMs: readonly number[],
+): () => number {
+  const values: number[] = [];
+  let current = 0;
+
+  for (const durationMs of durationsMs) {
+    values.push(current);
+    current += durationMs;
+    values.push(current);
+  }
+
+  return () => {
+    const value = values.shift();
+
+    if (value === undefined) {
+      throw new Error(
+        "No prepared clock value remains.",
+      );
+    }
+
+    return value;
+  };
+}
 
 function workloadResponse(
   channel: ObservedReleaseChannel,
@@ -56,6 +82,11 @@ test("observes enough healthy traffic to promote", async () => {
       workloadResponse("canary"),
       workloadResponse("stable"),
     ]),
+    now: createClock([
+      10,
+      25,
+      15,
+    ]),
   });
 
   assert.equal(observation.totalRequests, 3);
@@ -63,10 +94,12 @@ test("observes enough healthy traffic to promote", async () => {
     stable: {
       requests: 2,
       failures: 0,
+      maximumLatencyMs: 15,
     },
     canary: {
       requests: 1,
       failures: 0,
+      maximumLatencyMs: 25,
     },
   });
   assert.equal(
@@ -94,11 +127,17 @@ test("observes canary failures and rolls back", async () => {
       workloadResponse("canary", false),
       workloadResponse("canary"),
     ]),
+    now: createClock([
+      10,
+      25,
+      15,
+    ]),
   });
 
   assert.deepEqual(observation.observations.canary, {
     requests: 2,
     failures: 1,
+    maximumLatencyMs: 25,
   });
   assert.equal(
     observation.evaluation.decision,
@@ -121,6 +160,10 @@ test("continues when the request limit is reached", async () => {
     requestWorkload: createRequester([
       workloadResponse("stable"),
       workloadResponse("canary"),
+    ]),
+    now: createClock([
+      10,
+      25,
     ]),
   });
 
@@ -166,6 +209,24 @@ test("rejects an invalid maximum request limit", async () => {
     {
       message:
         "maximumTotalRequests must be a positive integer.",
+    },
+  );
+});
+
+test("rejects a decreasing observation clock", async () => {
+  await assert.rejects(
+    () => observeCanary({
+      policy,
+      maximumTotalRequests: 1,
+      requestWorkload: async () =>
+        workloadResponse("stable"),
+      now: createClock([
+        -1,
+      ]),
+    }),
+    {
+      message:
+        "Canary observation clock must return increasing finite values.",
     },
   );
 });
