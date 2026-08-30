@@ -16,6 +16,9 @@ import type {
   GitHubWebhookReceiver,
 } from "./github/github-webhook-receiver.js";
 import type {
+  DeploymentEventController,
+} from "./controllers/deployment-event-controller.js";
+import type {
   ReviewResponseDto,
 } from "./dto/review-response.js";
 import {
@@ -53,6 +56,8 @@ export interface RequestHandlerOptions {
     GitHubReviewController;
   readonly githubWebhookReceiver?:
     GitHubWebhookReceiver;
+  readonly deploymentEventController?:
+    DeploymentEventController;
   readonly authenticateReviewRequest?:
     ReviewApiKeyAuthenticator;
 }
@@ -196,6 +201,48 @@ async function handleGitHubWebhookRequest(
   }
 }
 
+async function handleDeploymentEventRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  controller:
+    DeploymentEventController | undefined,
+  authenticateReviewRequest:
+    ReviewApiKeyAuthenticator,
+): Promise<void> {
+  try {
+    authenticateReviewRequest(request);
+
+    if (controller === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code:
+          "DEPLOYMENT_EVENT_API_UNAVAILABLE",
+        message:
+          "Deployment event ingestion is not configured.",
+        expose: false,
+      });
+    }
+
+    const input = await readJsonBody(request);
+    const receipt =
+      await controller.recordEvent(input);
+
+    response.setHeader(
+      "cache-control",
+      "no-store",
+    );
+
+    sendJson(
+      response,
+      receipt.replayed ? 200 : 202,
+      receipt,
+    );
+  } catch (error) {
+    request.resume();
+    sendErrorResponse(response, error);
+  }
+}
+
 export function createRequestHandler(
   release: ReleaseMetadata,
   failureSimulator: FailureSimulator =
@@ -214,6 +261,9 @@ export function createRequestHandler(
 
   const githubWebhookReceiver =
     options.githubWebhookReceiver;
+
+  const deploymentEventController =
+    options.deploymentEventController;
 
   const authenticateReviewRequest =
     options.authenticateReviewRequest
@@ -368,6 +418,38 @@ export function createRequestHandler(
         request,
         response,
         githubWebhookReceiver,
+      );
+
+      return;
+    }
+
+    if (pathname === "/deployment-events") {
+      if (request.method !== "POST") {
+        request.resume();
+
+        response.setHeader(
+          "allow",
+          "POST",
+        );
+
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only POST is supported for /deployment-events.",
+          }),
+        );
+
+        return;
+      }
+
+      void handleDeploymentEventRequest(
+        request,
+        response,
+        deploymentEventController,
+        authenticateReviewRequest,
       );
 
       return;

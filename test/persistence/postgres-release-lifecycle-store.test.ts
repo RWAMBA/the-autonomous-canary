@@ -178,6 +178,47 @@ test("normalizes intentionally local PostgreSQL connections to disabled TLS", ()
   );
 });
 
+test("requires both lifecycle migrations at startup", async () => {
+  const completePool = {
+    query: () => Promise.resolve({
+      rows: [
+        {
+          version:
+            "001_release_lifecycle",
+        },
+        {
+          version:
+            "002_deployment_event_ingestion",
+        },
+      ],
+      rowCount: 2,
+    }),
+  } as unknown as Pool;
+
+  await new PostgresReleaseLifecycleStore(
+    completePool,
+  ).verifySchema();
+
+  const incompletePool = {
+    query: () => Promise.resolve({
+      rows: [
+        {
+          version:
+            "001_release_lifecycle",
+        },
+      ],
+      rowCount: 1,
+    }),
+  } as unknown as Pool;
+
+  await assert.rejects(
+    new PostgresReleaseLifecycleStore(
+      incompletePool,
+    ).verifySchema(),
+    /Database migration 002_deployment_event_ingestion has not been applied\./u,
+  );
+});
+
 test("cancels a closed pull request release and its pending automation", async () => {
   const statements: string[] = [];
 
@@ -260,6 +301,16 @@ test("cancels a closed pull request release and its pending automation", async (
       )
       && sql.includes(
         "WHERE release_id = $1",
+      )),
+    true,
+  );
+  assert.equal(
+    statements.some((sql) =>
+      sql.startsWith(
+        "UPDATE deployment_attempts",
+      )
+      && sql.includes(
+        "SET status = 'CANCELLED'",
       )),
     true,
   );

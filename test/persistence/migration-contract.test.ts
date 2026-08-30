@@ -11,6 +11,12 @@ const migrationUrl = new URL(
   import.meta.url,
 );
 
+const deploymentEventMigrationUrl =
+  new URL(
+    "../../db/migrations/002_deployment_event_ingestion.sql",
+    import.meta.url,
+  );
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -62,5 +68,37 @@ test("defines the complete release lifecycle under one release identifier", asyn
   assert.doesNotMatch(
     migration,
     /raw_(?:log|prompt|model|diff)|api_key|private_key/iu,
+  );
+});
+
+test("adds durable deployment event idempotency without raw payload storage", async () => {
+  const migration = await readFile(
+    deploymentEventMigrationUrl,
+    "utf8",
+  );
+
+  assert.match(
+    migration,
+    /CREATE TABLE IF NOT EXISTS deployment_event_receipts/u,
+  );
+  assert.match(
+    migration,
+    /event_id uuid PRIMARY KEY/u,
+  );
+  assert.match(
+    migration,
+    /release_id uuid NOT NULL REFERENCES releases\(release_id\)/u,
+  );
+  assert.match(
+    migration,
+    /payload_sha256 text NOT NULL/u,
+  );
+  assert.match(
+    migration,
+    /002_deployment_event_ingestion/u,
+  );
+  assert.doesNotMatch(
+    migration,
+    /raw_(?:payload|log|prompt|model|diff)|api_key|private_key/iu,
   );
 });

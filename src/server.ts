@@ -12,6 +12,9 @@ import {
   DefaultGitHubReviewController,
 } from "./controllers/github-review-controller.js";
 import {
+  DefaultDeploymentEventController,
+} from "./controllers/deployment-event-controller.js";
+import {
   createIntelligenceEngine,
 } from "./engines/intelligence/intelligence-engine-factory.js";
 import {
@@ -257,6 +260,13 @@ const githubWebhookReceiver =
         },
       );
 
+const deploymentEventController =
+  lifecycleStore === undefined
+    ? undefined
+    : new DefaultDeploymentEventController(
+        lifecycleStore,
+      );
+
 const requestHandler =
   createRequestHandler(
     loadReleaseMetadata(),
@@ -278,6 +288,14 @@ const requestHandler =
           ? {}
           : {
               githubWebhookReceiver,
+            }
+      ),
+      ...(
+        deploymentEventController
+          === undefined
+          ? {}
+          : {
+              deploymentEventController,
             }
       ),
     },

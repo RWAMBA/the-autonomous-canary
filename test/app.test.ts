@@ -24,6 +24,9 @@ import {
   parseCiEvidence,
 } from "../src/dto/ci-evidence.js";
 import {
+  parseDeploymentEvent,
+} from "../src/dto/deployment-event.js";
+import {
   parseGitHubWebhookReceipt,
 } from "../src/dto/github-webhook.js";
 import {
@@ -133,6 +136,35 @@ const githubReviewController =
     reviewController,
   });
 
+let deploymentEventCalls = 0;
+
+const deploymentEventController = {
+  recordEvent: (input: unknown) => {
+    deploymentEventCalls += 1;
+    const event =
+      parseDeploymentEvent(input);
+
+    return Promise.resolve({
+      eventId: event.eventId,
+      eventType: event.eventType,
+      releaseId: event.releaseId,
+      ...(event.eventType
+        === "DEPLOYMENT_OUTCOME_RECORDED"
+        && !("deploymentAttemptId" in event)
+        ? {}
+        : {
+            deploymentAttemptId:
+              event.deploymentAttemptId,
+          }),
+      replayed: false,
+      releaseStatus:
+        "DEPLOYING" as const,
+      deploymentStatus:
+        "STARTED" as const,
+    });
+  },
+};
+
 function createGitHubWebhookReceiver() {
   const config = loadGitHubWebhookConfig({
     [githubWebhookProviderEnvironmentVariable]:
@@ -235,6 +267,7 @@ const server = createServer(
       githubReviewController,
       githubWebhookReceiver:
         createGitHubWebhookReceiver(),
+      deploymentEventController,
       authenticateReviewRequest:
         createReviewApiKeyAuthenticator(
           reviewApiKey,
@@ -282,6 +315,193 @@ before(async () => {
 
   baseUrl =
     `http://127.0.0.1:${address.port}`;
+});
+
+test("POST /deployment-events authenticates and records a structured event", async () => {
+  const callsBefore = deploymentEventCalls;
+  const response = await fetch(
+    `${baseUrl}/deployment-events`,
+    {
+      method: "POST",
+      headers: {
+        authorization:
+          `Bearer ${reviewApiKey}`,
+        "content-type":
+          "application/json",
+      },
+      body: JSON.stringify({
+        eventId:
+          "323e4567-e89b-42d3-a456-426614174000",
+        eventType:
+          "DEPLOYMENT_STARTED",
+        releaseId: reviewId,
+        deploymentAttemptId:
+          "223e4567-e89b-42d3-a456-426614174000",
+        occurredAt:
+          "2026-08-30T15:32:42.000Z",
+        provider: "RENDER",
+        strategy: "CANARY",
+        initialTrafficPercent: 5,
+      }),
+    },
+  );
+
+  assert.equal(response.status, 202);
+  assert.equal(
+    response.headers.get("cache-control"),
+    "no-store",
+  );
+  assert.equal(
+    deploymentEventCalls,
+    callsBefore + 1,
+  );
+  assert.deepEqual(
+    await response.json(),
+    {
+      eventId:
+        "323e4567-e89b-42d3-a456-426614174000",
+      eventType: "DEPLOYMENT_STARTED",
+      releaseId: reviewId,
+      deploymentAttemptId:
+        "223e4567-e89b-42d3-a456-426614174000",
+      replayed: false,
+      releaseStatus: "DEPLOYING",
+      deploymentStatus: "STARTED",
+    },
+  );
+});
+
+test("POST /deployment-events authenticates before controller work", async () => {
+  const callsBefore = deploymentEventCalls;
+  const response = await fetch(
+    `${baseUrl}/deployment-events`,
+    {
+      method: "POST",
+      headers: {
+        "content-type":
+          "application/json",
+      },
+      body: JSON.stringify({}),
+    },
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(
+    deploymentEventCalls,
+    callsBefore,
+  );
+});
+
+test("GET /deployment-events returns method not allowed", async () => {
+  const response = await fetch(
+    `${baseUrl}/deployment-events`,
+  );
+
+  assert.equal(response.status, 405);
+  assert.equal(
+    response.headers.get("allow"),
+    "POST",
+  );
+  assert.deepEqual(
+    await response.json(),
+    {
+      error: {
+        code: "METHOD_NOT_ALLOWED",
+        message:
+          "Only POST is supported for /deployment-events.",
+      },
+    },
+  );
+});
+
+test("POST /deployment-events is unavailable without durable persistence", async () => {
+  const unavailableServer = createServer(
+    createRequestHandler(
+      {
+        channel: "canary",
+        commitSha: "abc123",
+        version: "1.2.3",
+      },
+      createFailureSimulator(0),
+      {
+        reviewController,
+        authenticateReviewRequest:
+          createReviewApiKeyAuthenticator(
+            reviewApiKey,
+          ),
+      },
+    ),
+  );
+
+  await new Promise<void>(
+    (resolve, reject) => {
+      unavailableServer.once(
+        "error",
+        reject,
+      );
+      unavailableServer.listen(
+        0,
+        "127.0.0.1",
+        resolve,
+      );
+    },
+  );
+
+  try {
+    const address =
+      unavailableServer.address();
+
+    if (
+      address === null
+      || typeof address === "string"
+    ) {
+      throw new Error(
+        "Expected a TCP test server.",
+      );
+    }
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/deployment-events`,
+      {
+        method: "POST",
+        headers: {
+          authorization:
+            `Bearer ${reviewApiKey}`,
+          "content-type":
+            "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(
+      await response.json(),
+      {
+        error: {
+          code:
+            "INTERNAL_SERVER_ERROR",
+          message:
+            "An unexpected server error occurred.",
+        },
+      },
+    );
+  } finally {
+    await new Promise<void>(
+      (resolve, reject) => {
+        unavailableServer.close(
+          (error) => {
+            if (error !== undefined) {
+              reject(error);
+              return;
+            }
+
+            resolve();
+          },
+        );
+      },
+    );
+  }
 });
 
 after(async () => {
