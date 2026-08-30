@@ -171,7 +171,7 @@ async function handleGitHubWebhookRequest(
     const rawBody =
       await readRawBody(request);
 
-    const receipt = receiver.receive({
+    const receipt = await receiver.receive({
       headers: request.headers,
       rawBody,
     });

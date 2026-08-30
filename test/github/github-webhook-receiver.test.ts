@@ -30,6 +30,10 @@ import type {
 import {
   HttpError,
 } from "../../src/middleware/http-error.js";
+import type {
+  GitHubLifecycleStore,
+  PullRequestDeliveryInput,
+} from "../../src/persistence/release-lifecycle-store.js";
 
 const webhookSecret =
   "webhook-test-secret-000000000000";
@@ -697,5 +701,118 @@ test("acknowledges generated check_run traffic without creating an automation lo
       "untrusted ignored data",
     ),
     false,
+  );
+});
+
+test("accepts a direct pull_request event only through durable lifecycle persistence", async () => {
+  const accepted:
+    PullRequestDeliveryInput[] = [];
+
+  const lifecycleStore:
+    GitHubLifecycleStore = {
+      durable: true,
+      acceptPullRequestDelivery:
+        async (input) => {
+          accepted.push(input);
+          return {
+            releaseId:
+              "123e4567-e89b-42d3-a456-426614174000",
+          };
+        },
+      acceptWorkflowRunDelivery:
+        async () => ({
+          status: "IGNORED",
+          reason:
+            "WORKFLOW_RUN_NOT_COMPLETED",
+        }),
+      acceptIgnoredDelivery:
+        async () => undefined,
+      claimWorkflowRunTask:
+        async () => undefined,
+      completeWorkflowRunTask:
+        async () => undefined,
+      retryWorkflowRunTask:
+        async () => undefined,
+      close: async () => undefined,
+    };
+
+  const payload = {
+    action: "opened",
+    number: 21,
+    installation: {
+      id: 15_758_562,
+    },
+    repository: {
+      id: 101,
+      full_name:
+        "RWAMBA/the-autonomous-canary",
+      name:
+        "the-autonomous-canary",
+      owner: {
+        login: "RWAMBA",
+      },
+    },
+    pull_request: {
+      number: 21,
+      state: "open",
+      draft: false,
+      title:
+        "Persist lifecycle records",
+      created_at:
+        "2026-08-30T00:00:00.000Z",
+      closed_at: null,
+      head: {
+        sha:
+          "b70e3e7bcef06a1ff3096790079e3cea564054a0",
+      },
+      base: {
+        sha:
+          "ed4254dfe8c364b5e9e4150eaee0214db250b6e5",
+      },
+      body:
+        "This untrusted field is discarded.",
+    },
+  };
+
+  const receipt = await createReceiver({
+    lifecycleStore,
+  }).receive(
+    createDelivery(
+      payload,
+      {
+        event: "pull_request",
+      },
+    ),
+  );
+
+  assert.equal(
+    receipt.event,
+    "pull_request",
+  );
+  assert.equal(accepted.length, 1);
+  assert.equal(
+    JSON.stringify(accepted).includes(
+      "untrusted field",
+    ),
+    false,
+  );
+
+  assert.throws(
+    () => createReceiver().receive(
+      createDelivery(
+        payload,
+        {
+          event: "pull_request",
+          deliveryId:
+            "82d3162e-cc78-11e3-81ab-4c9367dc0958",
+        },
+      ),
+    ),
+    (error: unknown) =>
+      assertExpectedHttpError(
+        error,
+        503,
+        "GITHUB_PULL_REQUEST_PERSISTENCE_REQUIRED",
+      ),
   );
 });

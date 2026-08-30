@@ -12,9 +12,13 @@ import {
 } from "../middleware/http-error.js";
 import type {
   GitHubCheckRunPublisher,
+  GitHubCheckRunPublication,
   GitHubCiEvidenceCollector,
   GitHubPullRequestChangeCollector,
 } from "./github-api-client.js";
+import type {
+  GitHubLifecycleStore,
+} from "../persistence/release-lifecycle-store.js";
 import type {
   EnabledGitHubAutomationConfig,
 } from "./github-automation-config.js";
@@ -32,7 +36,9 @@ const testStepPattern =
 export interface GitHubWorkflowRunProcessor {
   process(
     task: GitHubWorkflowRunTask,
-  ): Promise<void>;
+  ): Promise<
+    GitHubCheckRunPublication | void
+  >;
 }
 
 export interface GitHubWorkflowAutomationLogger {
@@ -149,7 +155,7 @@ implements GitHubWorkflowRunProcessor {
 
   async process(
     input: GitHubWorkflowRunTask,
-  ): Promise<void> {
+  ): Promise<GitHubCheckRunPublication> {
     const task =
       parseGitHubWorkflowRunTask(input);
 
@@ -187,6 +193,15 @@ implements GitHubWorkflowRunProcessor {
             securityFindings: [],
             ci,
           },
+        }, {
+          ...(
+            task.releaseId === undefined
+              ? {}
+              : {
+                  releaseId:
+                    task.releaseId,
+                }
+          ),
         });
 
     const publication =
@@ -215,6 +230,184 @@ implements GitHubWorkflowRunProcessor {
       checkRunId:
         publication.checkRunId,
     });
+
+    return publication;
+  }
+}
+
+export interface DurableGitHubWorkflowRunWorkerConfig {
+  readonly concurrency: number;
+  readonly pollIntervalMs: number;
+  readonly leaseMs: number;
+  readonly maximumAttempts: number;
+  readonly retryBaseMs: number;
+}
+
+export interface DurableGitHubWorkflowRunWorkerOptions {
+  readonly store:
+    GitHubLifecycleStore;
+  readonly processor:
+    GitHubWorkflowRunProcessor;
+  readonly logger?:
+    GitHubWorkflowAutomationLogger;
+  readonly clock?: () => Date;
+}
+
+export class DurableGitHubWorkflowRunWorker {
+  private readonly config:
+    DurableGitHubWorkflowRunWorkerConfig;
+
+  private readonly store:
+    GitHubLifecycleStore;
+
+  private readonly processor:
+    GitHubWorkflowRunProcessor;
+
+  private readonly logger:
+    GitHubWorkflowAutomationLogger;
+
+  private readonly clock: () => Date;
+
+  private timer: NodeJS.Timeout | undefined;
+
+  private active = 0;
+
+  private stopping = false;
+
+  constructor(
+    config:
+      DurableGitHubWorkflowRunWorkerConfig,
+    options:
+      DurableGitHubWorkflowRunWorkerOptions,
+  ) {
+    this.config = config;
+    this.store = options.store;
+    this.processor = options.processor;
+    this.logger = options.logger
+      ?? defaultLogger;
+    this.clock = options.clock
+      ?? (() => new Date());
+  }
+
+  start(): void {
+    if (this.timer !== undefined) {
+      return;
+    }
+
+    this.stopping = false;
+    this.timer = setInterval(
+      () => {
+        void this.drain();
+      },
+      this.config.pollIntervalMs,
+    );
+    this.timer.unref();
+    void this.drain();
+  }
+
+  async stop(): Promise<void> {
+    this.stopping = true;
+
+    if (this.timer !== undefined) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+
+    while (this.active > 0) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 10);
+      });
+    }
+  }
+
+  async runOnce(): Promise<boolean> {
+    const claimed =
+      await this.store.claimWorkflowRunTask(
+        this.config.leaseMs,
+      );
+
+    if (claimed === undefined) {
+      return false;
+    }
+
+    try {
+      const publication =
+        await this.processor.process(
+          claimed.task,
+        );
+
+      if (publication === undefined) {
+        throw new Error(
+          "Durable GitHub automation requires a Check Run publication result.",
+        );
+      }
+
+      await this.store.completeWorkflowRunTask(
+        claimed.taskId,
+        publication.checkRunId,
+      );
+    } catch (error) {
+      const errorCode =
+        error instanceof HttpError
+          ? error.code
+          : "GITHUB_AUTOMATION_FAILED";
+
+      const terminal =
+        claimed.attempts
+        >= this.config.maximumAttempts;
+
+      const retryAt = new Date(
+        this.clock().getTime()
+        + (
+          this.config.retryBaseMs
+          * 2 ** Math.max(
+            0,
+            claimed.attempts - 1,
+          )
+        ),
+      );
+
+      await this.store.retryWorkflowRunTask(
+        claimed.taskId,
+        errorCode,
+        retryAt,
+        terminal,
+      );
+
+      this.logger.failed({
+        deliveryId:
+          claimed.task.deliveryId,
+        repository:
+          `${claimed.task.repository.owner}/${claimed.task.repository.name}`,
+        workflowRunId:
+          claimed.task.workflowRun.id,
+        errorCode,
+      });
+    }
+
+    return true;
+  }
+
+  private async drain(): Promise<void> {
+    while (
+      !this.stopping
+      && this.active
+        < this.config.concurrency
+    ) {
+      this.active += 1;
+
+      void this.runOnce()
+        .then((processed) => {
+          this.active -= 1;
+
+          if (processed) {
+            void this.drain();
+          }
+        })
+        .catch(() => {
+          this.active -= 1;
+        });
+    }
   }
 }
 

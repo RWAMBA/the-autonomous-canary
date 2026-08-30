@@ -5,9 +5,50 @@ import {
 
 import {
   parseGitHubCheckRunWebhook,
+  parseGitHubPullRequestWebhook,
   parseGitHubWebhookReceipt,
   parseGitHubWorkflowRunWebhook,
 } from "../../src/dto/github-webhook.js";
+
+function createPullRequestPayload() {
+  return {
+    action: "synchronize",
+    number: 21,
+    installation: {
+      id: 15_758_562,
+    },
+    repository: {
+      id: 101,
+      full_name:
+        "RWAMBA/the-autonomous-canary",
+      name:
+        "the-autonomous-canary",
+      owner: {
+        login: "RWAMBA",
+      },
+    },
+    pull_request: {
+      number: 21,
+      state: "open",
+      draft: false,
+      title:
+        "Persist the release lifecycle",
+      created_at:
+        "2026-08-30T00:00:00.000Z",
+      closed_at: null,
+      head: {
+        sha:
+          "b70e3e7bcef06a1ff3096790079e3cea564054a0",
+      },
+      base: {
+        sha:
+          "ed4254dfe8c364b5e9e4150eaee0214db250b6e5",
+      },
+      body:
+        "Untrusted body content is discarded.",
+    },
+  };
+}
 
 function createPayload() {
   return {
@@ -190,6 +231,56 @@ test("accepts internally consistent webhook receipts", () => {
       ...accepted,
       status: "IGNORED",
     }),
+  );
+});
+
+test("normalizes direct pull_request lifecycle events without retaining body content", () => {
+  const payload =
+    parseGitHubPullRequestWebhook(
+      createPullRequestPayload(),
+    );
+
+  assert.equal(payload.action, "synchronize");
+  assert.equal(payload.number, 21);
+  assert.equal(
+    "body" in payload.pull_request,
+    false,
+  );
+
+  const receipt =
+    parseGitHubWebhookReceipt({
+      deliveryId:
+        "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+      event: "pull_request",
+      status: "ACCEPTED",
+      repository: {
+        owner: "RWAMBA",
+        name:
+          "the-autonomous-canary",
+      },
+      pullRequest: {
+        number: 21,
+        headSha:
+          "b70e3e7bcef06a1ff3096790079e3cea564054a0",
+        state: "OPEN",
+      },
+      releaseId:
+        "123e4567-e89b-42d3-a456-426614174000",
+    });
+
+  assert.equal(
+    receipt.event,
+    "pull_request",
+  );
+
+  const mismatch =
+    createPullRequestPayload();
+  mismatch.pull_request.number = 22;
+
+  assert.throws(
+    () => parseGitHubPullRequestWebhook(
+      mismatch,
+    ),
   );
 });
 

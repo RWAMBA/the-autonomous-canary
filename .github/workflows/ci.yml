@@ -22,6 +22,7 @@ env:
   CANARYGUARD_GITHUB_PROVIDER: DISABLED
   CANARYGUARD_GITHUB_WEBHOOK_PROVIDER: DISABLED
   CANARYGUARD_GITHUB_AUTOMATION_PROVIDER: DISABLED
+  CANARYGUARD_PERSISTENCE_PROVIDER: DISABLED
 
 jobs:
   quality:
@@ -72,6 +73,16 @@ jobs:
 
           if [[ "${CANARYGUARD_GITHUB_AUTOMATION_PROVIDER}" != "DISABLED" ]]; then
             echo "Public CI must disable GitHub Check Run automation." >&2
+            exit 1
+          fi
+
+          if [[ "${CANARYGUARD_PERSISTENCE_PROVIDER}" != "DISABLED" ]]; then
+            echo "Public CI must disable release persistence." >&2
+            exit 1
+          fi
+
+          if [[ -n "${DATABASE_URL:-}" ]]; then
+            echo "DATABASE_URL must not be available to public CI." >&2
             exit 1
           fi
 

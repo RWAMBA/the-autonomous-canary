@@ -23,6 +23,15 @@ export const githubWorkflowRunActionSchema =
     "completed",
   ]);
 
+export const githubPullRequestActionSchema =
+  z.enum([
+    "opened",
+    "reopened",
+    "synchronize",
+    "ready_for_review",
+    "closed",
+  ]);
+
 const githubWorkflowRunStatusSchema =
   z.enum([
     "requested",
@@ -98,6 +107,93 @@ const githubWorkflowRunSchema = z
       .max(20)
       .default([]),
   });
+
+export const githubPullRequestWebhookSchema =
+  z
+    .object({
+      action:
+        githubPullRequestActionSchema,
+      number: z
+        .number()
+        .int()
+        .positive()
+        .max(maximumGitHubIdentifier),
+      installation: z
+        .object({
+          id: z
+            .number()
+            .int()
+            .positive()
+            .max(
+              maximumGitHubIdentifier,
+            ),
+        }),
+      repository:
+        githubRepositorySchema,
+      pull_request: z
+        .object({
+          number: z
+            .number()
+            .int()
+            .positive()
+            .max(
+              maximumGitHubIdentifier,
+            ),
+          state: z.enum([
+            "open",
+            "closed",
+          ]),
+          draft: z.boolean(),
+          title: z
+            .string()
+            .trim()
+            .min(1)
+            .max(500),
+          created_at:
+            z.iso.datetime(),
+          closed_at: z
+            .iso.datetime()
+            .nullable(),
+          head: z.object({
+            sha: gitShaSchema,
+          }),
+          base: z.object({
+            sha: gitShaSchema,
+          }),
+        }),
+    })
+    .superRefine((value, context) => {
+      if (
+        value.number
+        !== value.pull_request.number
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "pull_request",
+            "number",
+          ],
+          message:
+            "The pull request number must match the webhook number.",
+        });
+      }
+
+      if (
+        value.action === "closed"
+        && value.pull_request.state
+          !== "closed"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "pull_request",
+            "state",
+          ],
+          message:
+            "A closed action must contain a closed pull request.",
+        });
+      }
+    });
 
 export const githubWorkflowRunWebhookSchema =
   z
@@ -194,6 +290,8 @@ const workflowRunReceiptSchema = z
         .enum([
           "WORKFLOW_RUN_NOT_COMPLETED",
           "WORKFLOW_RUN_PULL_REQUEST_UNAVAILABLE",
+          "WORKFLOW_RUN_PULL_REQUEST_CLOSED",
+          "WORKFLOW_RUN_HEAD_SUPERSEDED",
         ])
         .optional(),
       repository:
@@ -257,11 +355,46 @@ const checkRunReceiptSchema = z
   })
   .strict();
 
+const pullRequestReceiptSchema = z
+  .object({
+    deliveryId: z
+      .string()
+      .regex(githubDeliveryIdPattern),
+    event: z.literal("pull_request"),
+    status: z.literal("ACCEPTED"),
+    repository:
+      receiptRepositorySchema,
+    pullRequest: z
+      .object({
+        number: z
+          .number()
+          .int()
+          .positive()
+          .max(
+            maximumGitHubIdentifier,
+          ),
+        headSha: gitShaSchema,
+        state: z.enum([
+          "OPEN",
+          "CLOSED",
+        ]),
+      })
+      .strict(),
+    releaseId: z.uuid(),
+  })
+  .strict();
+
 export const githubWebhookReceiptSchema =
   z.discriminatedUnion("event", [
+    pullRequestReceiptSchema,
     workflowRunReceiptSchema,
     checkRunReceiptSchema,
   ]);
+
+export type GitHubPullRequestWebhookDto =
+  z.infer<
+    typeof githubPullRequestWebhookSchema
+  >;
 
 export type GitHubWorkflowRunWebhookDto =
   z.infer<
@@ -282,6 +415,13 @@ export function parseGitHubWorkflowRunWebhook(
   input: unknown,
 ): GitHubWorkflowRunWebhookDto {
   return githubWorkflowRunWebhookSchema
+    .parse(input);
+}
+
+export function parseGitHubPullRequestWebhook(
+  input: unknown,
+): GitHubPullRequestWebhookDto {
+  return githubPullRequestWebhookSchema
     .parse(input);
 }
 

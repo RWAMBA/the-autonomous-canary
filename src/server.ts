@@ -37,6 +37,7 @@ import {
 } from "./github/github-webhook-receiver.js";
 import {
   DefaultGitHubWorkflowRunProcessor,
+  DurableGitHubWorkflowRunWorker,
   InMemoryGitHubWorkflowRunQueue,
 } from "./github/github-workflow-automation.js";
 import {
@@ -46,6 +47,16 @@ import {
 import {
   loadReleaseMetadata,
 } from "./release.js";
+import {
+  loadDurableAutomationConfig,
+} from "./persistence/durable-automation-config.js";
+import {
+  createPostgresPool,
+  PostgresReleaseLifecycleStore,
+} from "./persistence/postgres-release-lifecycle-store.js";
+import {
+  loadPersistenceConfig,
+} from "./persistence/persistence-config.js";
 
 const defaultPort = 3000;
 const host = "0.0.0.0";
@@ -87,9 +98,37 @@ const intelligenceEngine =
     loadIntelligenceConfig(),
   );
 
+const persistenceConfig =
+  loadPersistenceConfig();
+
+const lifecycleStore = (() => {
+  if (
+    persistenceConfig.provider
+    === "DISABLED"
+  ) {
+    return undefined;
+  }
+
+  return new PostgresReleaseLifecycleStore(
+    createPostgresPool(
+      persistenceConfig,
+    ),
+  );
+})();
+
+await lifecycleStore?.verifySchema();
+
 const reviewController =
   new DefaultReviewController({
     intelligenceEngine,
+    ...(
+      lifecycleStore === undefined
+        ? {}
+        : {
+            lifecycleRecorder:
+              lifecycleStore,
+          }
+    ),
   });
 
 const githubConfig =
@@ -116,6 +155,22 @@ const githubWebhookConfig =
 
 const githubAutomationConfig =
   loadGitHubAutomationConfig();
+
+if (
+  lifecycleStore !== undefined
+  && githubWebhookConfig.provider
+    === "GITHUB"
+  && githubAutomationConfig.provider
+    === "DISABLED"
+) {
+  throw new Error(
+    "PostgreSQL-backed GitHub webhook ingestion requires CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS.",
+  );
+}
+
+let durableWorkflowRunWorker:
+  DurableGitHubWorkflowRunWorker
+  | undefined;
 
 const workflowRunTaskDispatcher = (() => {
   if (
@@ -151,6 +206,24 @@ const workflowRunTaskDispatcher = (() => {
         githubApiClient,
     });
 
+  if (lifecycleStore !== undefined) {
+    durableWorkflowRunWorker =
+      new DurableGitHubWorkflowRunWorker(
+        {
+          concurrency:
+            githubAutomationConfig
+              .concurrency,
+          ...loadDurableAutomationConfig(),
+        },
+        {
+          store: lifecycleStore,
+          processor,
+        },
+      );
+
+    return undefined;
+  }
+
   return new InMemoryGitHubWorkflowRunQueue(
     githubAutomationConfig,
     {
@@ -172,6 +245,13 @@ const githubWebhookReceiver =
               ? {}
               : {
                   workflowRunTaskDispatcher,
+                }
+          ),
+          ...(
+            lifecycleStore === undefined
+              ? {}
+              : {
+                  lifecycleStore,
                 }
           ),
         },
@@ -208,6 +288,8 @@ const server =
     requestHandler,
   );
 
+durableWorkflowRunWorker?.start();
+
 server.listen(
   port,
   host,
@@ -230,36 +312,46 @@ server.on(
   },
 );
 
-function shutdown(
+async function shutdown(
   signal: NodeJS.Signals,
-): void {
+): Promise<void> {
   console.log(
     `${signal} received. Shutting down.`,
   );
 
-  server.close((error) => {
-    if (error !== undefined) {
-      console.error(
-        "Shutdown error:",
-        error,
-      );
+  await new Promise<void>((resolve) => {
+    server.close((error) => {
+      if (error !== undefined) {
+        console.error(
+          "Shutdown error:",
+          error,
+        );
 
-      process.exitCode = 1;
-      return;
-    }
+        process.exitCode = 1;
+      }
 
-    console.log(
-      "Server stopped.",
-    );
+      resolve();
+    });
   });
+
+  await durableWorkflowRunWorker?.stop();
+  await lifecycleStore?.close();
+
+  console.log(
+    "Server stopped.",
+  );
 }
 
 process.once(
   "SIGINT",
-  () => shutdown("SIGINT"),
+  () => {
+    void shutdown("SIGINT");
+  },
 );
 
 process.once(
   "SIGTERM",
-  () => shutdown("SIGTERM"),
+  () => {
+    void shutdown("SIGTERM");
+  },
 );

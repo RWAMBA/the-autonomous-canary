@@ -863,6 +863,18 @@ test("POST /github/webhooks accepts a signed completed workflow_run without bear
     receipt.status,
     "ACCEPTED",
   );
+
+  assert.equal(
+    receipt.event,
+    "workflow_run",
+  );
+
+  if (receipt.event !== "workflow_run") {
+    assert.fail(
+      "Expected a workflow_run receipt.",
+    );
+  }
+
   assert.equal(
     receipt.workflowRun.id,
     33_273_782_416,

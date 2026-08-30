@@ -39,6 +39,10 @@ import type {
 import {
   sanitizeReviewRequest,
 } from "../middleware/sanitize-review-request.js";
+import type {
+  ReviewLifecycleRecorder,
+  ReviewPersistenceContext,
+} from "../persistence/release-lifecycle-store.js";
 
 const reviewIdSchema = z.uuid();
 
@@ -47,6 +51,7 @@ export type ReviewIdFactory = () => string;
 export interface ReviewController {
   createReview(
     input: unknown,
+    context?: ReviewPersistenceContext,
   ): Promise<ReviewResponseDto>;
 }
 
@@ -61,6 +66,8 @@ export interface ReviewControllerOptions {
     IntelligenceTelemetryLogger;
   readonly createReviewId?:
     ReviewIdFactory;
+  readonly lifecycleRecorder?:
+    ReviewLifecycleRecorder;
 }
 
 function defaultCreateReviewId(): string {
@@ -84,6 +91,9 @@ implements ReviewController {
   private readonly createReviewId:
     ReviewIdFactory;
 
+  private readonly lifecycleRecorder:
+    ReviewLifecycleRecorder | undefined;
+
   constructor(
     options: ReviewControllerOptions = {},
   ) {
@@ -106,10 +116,14 @@ implements ReviewController {
     this.createReviewId =
       options.createReviewId
       ?? defaultCreateReviewId;
+
+    this.lifecycleRecorder =
+      options.lifecycleRecorder;
   }
 
   async createReview(
     input: unknown,
+    context: ReviewPersistenceContext = {},
   ): Promise<ReviewResponseDto> {
     const request =
       parseReviewRequest(input);
@@ -121,10 +135,31 @@ implements ReviewController {
       sanitizationResult
         .sanitizedRequest;
 
+    const proposedReviewId =
+      reviewIdSchema.parse(
+        context.releaseId
+        ?? this.createReviewId(),
+      );
+
     const reviewId =
       reviewIdSchema.parse(
-        this.createReviewId(),
+        this.lifecycleRecorder === undefined
+          ? proposedReviewId
+          : await this.lifecycleRecorder
+              .resolveReleaseId(
+                sanitizedRequest,
+                proposedReviewId,
+              ),
       );
+
+    if (
+      context.releaseId !== undefined
+      && reviewId !== proposedReviewId
+    ) {
+      throw new Error(
+        "The correlated release identifier does not match the stored release.",
+      );
+    }
 
     const deterministicAssessment =
       this.deterministicEngine.analyze(
@@ -142,11 +177,23 @@ implements ReviewController {
         intelligenceResult.telemetry,
     });
 
-    return this.policyEngine.evaluate({
+    const response =
+      this.policyEngine.evaluate({
       reviewId,
       request: sanitizedRequest,
       deterministicAssessment,
       intelligenceResult,
     });
+
+    await this.lifecycleRecorder
+      ?.recordReview({
+        releaseId: reviewId,
+        request: sanitizedRequest,
+        deterministicAssessment,
+        intelligenceResult,
+        response,
+      });
+
+    return response;
   }
 }

@@ -12,11 +12,13 @@ import {
 import {
   githubDeliveryIdPattern,
   parseGitHubCheckRunWebhook,
+  parseGitHubPullRequestWebhook,
   parseGitHubWebhookReceipt,
   parseGitHubWorkflowRunWebhook,
 } from "../dto/github-webhook.js";
 import type {
   GitHubCheckRunWebhookDto,
+  GitHubPullRequestWebhookDto,
   GitHubWebhookReceiptDto,
   GitHubWorkflowRunWebhookDto,
 } from "../dto/github-webhook.js";
@@ -35,6 +37,9 @@ import type {
 import type {
   GitHubWebhookReplayGuard,
 } from "./github-webhook-replay-guard.js";
+import type {
+  GitHubLifecycleStore,
+} from "../persistence/release-lifecycle-store.js";
 
 const signaturePattern =
   /^sha256=([a-f0-9]{64})$/u;
@@ -55,7 +60,8 @@ export interface GitHubWebhookDelivery {
 export interface GitHubWebhookReceiver {
   receive(
     delivery: GitHubWebhookDelivery,
-  ): GitHubWebhookReceiptDto;
+  ): GitHubWebhookReceiptDto
+    | Promise<GitHubWebhookReceiptDto>;
 }
 
 export interface GitHubWebhookReceiptLogger {
@@ -71,6 +77,8 @@ export interface GitHubWebhookReceiverOptions {
     GitHubWebhookReceiptLogger;
   readonly workflowRunTaskDispatcher?:
     GitHubWorkflowRunTaskDispatcher;
+  readonly lifecycleStore?:
+    GitHubLifecycleStore;
 }
 
 const defaultLogger:
@@ -220,6 +228,27 @@ function parseCheckRunPayload(
   }
 }
 
+function parsePullRequestPayload(
+  rawBody: Buffer,
+): GitHubPullRequestWebhookDto {
+  try {
+    const text = utf8Decoder.decode(rawBody);
+
+    return parseGitHubPullRequestWebhook(
+      JSON.parse(text),
+    );
+  } catch (error) {
+    throw new HttpError({
+      statusCode: 422,
+      code:
+        "INVALID_GITHUB_WEBHOOK_PAYLOAD",
+      message:
+        "The GitHub webhook payload is invalid.",
+      cause: error,
+    });
+  }
+}
+
 function valuesMatch(
   first: string,
   second: string,
@@ -278,6 +307,28 @@ function validateBindings(
         "GITHUB_WEBHOOK_HEAD_SHA_MISMATCH",
       message:
         "The workflow run head commit does not match its head SHA.",
+    });
+  }
+}
+
+function validatePullRequestBindings(
+  payload: GitHubPullRequestWebhookDto,
+): void {
+  const expectedFullName =
+    `${payload.repository.owner.login}/${payload.repository.name}`;
+
+  if (
+    !valuesMatch(
+      payload.repository.full_name,
+      expectedFullName,
+    )
+  ) {
+    throw new HttpError({
+      statusCode: 409,
+      code:
+        "GITHUB_WEBHOOK_REPOSITORY_MISMATCH",
+      message:
+        "The pull request is not bound to the delivered repository.",
     });
   }
 }
@@ -367,6 +418,9 @@ implements GitHubWebhookReceiver {
     GitHubWorkflowRunTaskDispatcher
     | undefined;
 
+  private readonly lifecycleStore:
+    GitHubLifecycleStore | undefined;
+
   constructor(
     config: EnabledGitHubWebhookConfig,
     options:
@@ -383,11 +437,18 @@ implements GitHubWebhookReceiver {
       ?? defaultLogger;
     this.workflowRunTaskDispatcher =
       options.workflowRunTaskDispatcher;
+    this.lifecycleStore =
+      options.lifecycleStore;
   }
 
   receive(
     delivery: GitHubWebhookDelivery,
-  ): GitHubWebhookReceiptDto {
+  ): GitHubWebhookReceiptDto;
+
+  receive(
+    delivery: GitHubWebhookDelivery,
+  ): GitHubWebhookReceiptDto
+    | Promise<GitHubWebhookReceiptDto> {
     const signature = readSignatureHeader(
       delivery.headers,
     );
@@ -411,13 +472,14 @@ implements GitHubWebhookReceiver {
     if (
       event !== "workflow_run"
       && event !== "check_run"
+      && event !== "pull_request"
     ) {
       throw new HttpError({
         statusCode: 422,
         code:
           "UNSUPPORTED_GITHUB_WEBHOOK_EVENT",
         message:
-          "Only workflow_run and check_run webhook events are supported.",
+          "Only pull_request, workflow_run, and check_run webhook events are supported.",
       });
     }
 
@@ -449,8 +511,41 @@ implements GitHubWebhookReceiver {
           )
         : undefined;
 
+    const pullRequestPayload =
+      event === "pull_request"
+        ? parsePullRequestPayload(
+            delivery.rawBody,
+          )
+        : undefined;
+
     if (workflowRunPayload !== undefined) {
       validateBindings(workflowRunPayload);
+    }
+
+    if (pullRequestPayload !== undefined) {
+      validatePullRequestBindings(
+        pullRequestPayload,
+      );
+    }
+
+    if (this.lifecycleStore !== undefined) {
+      return this.receiveDurably({
+        deliveryId,
+        workflowRunPayload,
+        checkRunPayload,
+        pullRequestPayload,
+      });
+    }
+
+    if (pullRequestPayload !== undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code:
+          "GITHUB_PULL_REQUEST_PERSISTENCE_REQUIRED",
+        message:
+          "Direct pull request webhook processing requires durable persistence.",
+        expose: false,
+      });
     }
 
     const reservation =
@@ -559,6 +654,125 @@ implements GitHubWebhookReceiver {
 
     this.logger.log(receipt);
 
+    return receipt;
+  }
+
+  private async receiveDurably(input: {
+    readonly deliveryId: string;
+    readonly workflowRunPayload:
+      GitHubWorkflowRunWebhookDto
+      | undefined;
+    readonly checkRunPayload:
+      GitHubCheckRunWebhookDto
+      | undefined;
+    readonly pullRequestPayload:
+      GitHubPullRequestWebhookDto
+      | undefined;
+  }): Promise<GitHubWebhookReceiptDto> {
+    const store = this.lifecycleStore;
+
+    if (store === undefined) {
+      throw new Error(
+        "Durable webhook dispatch requires a lifecycle store.",
+      );
+    }
+
+    let receipt: GitHubWebhookReceiptDto;
+
+    if (input.pullRequestPayload !== undefined) {
+      const result =
+        await store.acceptPullRequestDelivery({
+          deliveryId: input.deliveryId,
+          payload:
+            input.pullRequestPayload,
+        });
+
+      receipt = parseGitHubWebhookReceipt({
+        deliveryId: input.deliveryId,
+        event: "pull_request",
+        status: "ACCEPTED",
+        repository: {
+          owner:
+            input.pullRequestPayload
+              .repository.owner.login,
+          name:
+            input.pullRequestPayload
+              .repository.name,
+        },
+        pullRequest: {
+          number:
+            input.pullRequestPayload.number,
+          headSha:
+            input.pullRequestPayload
+              .pull_request.head.sha,
+          state:
+            input.pullRequestPayload
+              .pull_request.state
+              .toUpperCase(),
+        },
+        releaseId: result.releaseId,
+      });
+    } else if (
+      input.workflowRunPayload !== undefined
+    ) {
+      const result =
+        await store.acceptWorkflowRunDelivery({
+          deliveryId: input.deliveryId,
+          payload:
+            input.workflowRunPayload,
+        });
+
+      receipt = parseGitHubWebhookReceipt({
+        ...createReceipt(
+          input.deliveryId,
+          input.workflowRunPayload,
+          true,
+        ),
+        status: result.status,
+        ...(
+          result.status === "IGNORED"
+            ? {
+                reason: result.reason,
+              }
+            : {
+                reason: undefined,
+              }
+        ),
+      });
+    } else if (
+      input.checkRunPayload !== undefined
+    ) {
+      await store.acceptIgnoredDelivery({
+        deliveryId: input.deliveryId,
+        eventName: "check_run",
+        action:
+          input.checkRunPayload.action,
+        repository: {
+          githubRepositoryId:
+            input.checkRunPayload
+              .repository.id,
+          owner:
+            input.checkRunPayload
+              .repository.owner.login,
+          name:
+            input.checkRunPayload
+              .repository.name,
+        },
+        reason:
+          "CHECK_RUN_EVENT_IGNORED",
+      });
+
+      receipt = createCheckRunReceipt(
+        input.deliveryId,
+        input.checkRunPayload,
+      );
+    } else {
+      throw new Error(
+        "GitHub durable webhook dispatch failed.",
+      );
+    }
+
+    this.logger.log(receipt);
     return receipt;
   }
 }

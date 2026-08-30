@@ -22,6 +22,9 @@ export const githubWorkflowRunTaskSchema =
       deliveryId: z
         .string()
         .regex(githubDeliveryIdPattern),
+      releaseId: z
+        .uuid()
+        .optional(),
       installationId: z
         .number()
         .int()
