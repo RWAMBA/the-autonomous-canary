@@ -27,11 +27,18 @@ import {
   loadGitHubConfig,
 } from "./github/github-app-config.js";
 import {
+  loadGitHubAutomationConfig,
+} from "./github/github-automation-config.js";
+import {
   loadGitHubWebhookConfig,
 } from "./github/github-webhook-config.js";
 import {
   DefaultGitHubWebhookReceiver,
 } from "./github/github-webhook-receiver.js";
+import {
+  DefaultGitHubWorkflowRunProcessor,
+  InMemoryGitHubWorkflowRunQueue,
+} from "./github/github-workflow-automation.js";
 import {
   createReviewApiKeyAuthenticator,
   loadReviewApiKey,
@@ -88,19 +95,69 @@ const reviewController =
 const githubConfig =
   loadGitHubConfig();
 
-const githubReviewController =
+const githubApiClient =
   githubConfig.provider === "DISABLED"
+    ? undefined
+    : new GitHubAppApiClient(
+        githubConfig,
+      );
+
+const githubReviewController =
+  githubApiClient === undefined
     ? undefined
     : new DefaultGitHubReviewController({
         evidenceCollector:
-          new GitHubAppApiClient(
-            githubConfig,
-          ),
+          githubApiClient,
         reviewController,
       });
 
 const githubWebhookConfig =
   loadGitHubWebhookConfig();
+
+const githubAutomationConfig =
+  loadGitHubAutomationConfig();
+
+const workflowRunTaskDispatcher = (() => {
+  if (
+    githubAutomationConfig.provider
+    === "DISABLED"
+  ) {
+    return undefined;
+  }
+
+  if (githubApiClient === undefined) {
+    throw new Error(
+      "CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS requires CANARYGUARD_GITHUB_PROVIDER=APP.",
+    );
+  }
+
+  if (
+    githubWebhookConfig.provider
+    === "DISABLED"
+  ) {
+    throw new Error(
+      "CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS requires CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB.",
+    );
+  }
+
+  const processor =
+    new DefaultGitHubWorkflowRunProcessor({
+      evidenceCollector:
+        githubApiClient,
+      changeCollector:
+        githubApiClient,
+      reviewController,
+      checkRunPublisher:
+        githubApiClient,
+    });
+
+  return new InMemoryGitHubWorkflowRunQueue(
+    githubAutomationConfig,
+    {
+      processor,
+    },
+  );
+})();
 
 const githubWebhookReceiver =
   githubWebhookConfig.provider
@@ -108,6 +165,16 @@ const githubWebhookReceiver =
     ? undefined
     : new DefaultGitHubWebhookReceiver(
         githubWebhookConfig,
+        {
+          ...(
+            workflowRunTaskDispatcher
+              === undefined
+              ? {}
+              : {
+                  workflowRunTaskDispatcher,
+                }
+          ),
+        },
       );
 
 const requestHandler =

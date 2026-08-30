@@ -2,7 +2,7 @@
 
 CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a software change is safe to release, identifies possible failure risks, and selects an appropriate deployment strategy.
 
-The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs, plus an optional signed `POST /github/webhooks` ingestion boundary, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
+The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs, plus optional signed GitHub webhook ingestion and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
 ## Current MVP status
 
@@ -18,6 +18,9 @@ The MVP:
 - classifies failed or incomplete CI evidence into a bounded diagnostic contract
 - optionally collects completed workflow-run and exact-attempt job metadata through a least-privilege GitHub App
 - optionally validates and acknowledges signed GitHub `workflow_run` webhook deliveries
+- optionally queues completed pull-request workflows for automatic review
+- fetches bounded pull-request metadata and diffs through a repository-scoped token
+- publishes controlled release decisions as completed GitHub Check Runs
 - rejects bounded in-process delivery replays
 - returns a structured CI investigation without returning raw logs
 - returns log-free evidence references, confidence, retry guidance, and release-approval impact
@@ -84,7 +87,7 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `GET` | `/work` | Exercises deterministic workload behavior |
 | `POST` | `/reviews` | Creates a release-risk review |
 | `POST` | `/github/reviews` | Collects GitHub Actions evidence and creates a review |
-| `POST` | `/github/webhooks` | Validates and acknowledges signed GitHub `workflow_run` deliveries |
+| `POST` | `/github/webhooks` | Validates signed GitHub events and optionally queues pull-request workflow reviews |
 
 ## Authentication
 
@@ -125,7 +128,7 @@ Runtime secrets remain outside the repository in protected environment stores su
 
 The application never accepts customer GitHub tokens, GitHub App JWTs, installation tokens, repository passwords, deploy keys, or private SSH keys in an API request.
 
-The direct `/reviews` path continues to accept normalized caller-supplied CI evidence. The optional `/github/reviews` path creates its own short-lived GitHub App JWT, discovers the repository installation, requests a repository-scoped installation token with only `Actions: read`, and collects workflow-run and exact-attempt job metadata from GitHub.
+The direct `/reviews` path continues to accept normalized caller-supplied CI evidence. The optional `/github/reviews` path creates its own short-lived GitHub App JWT, discovers the repository installation, requests a repository-scoped installation token with only `Actions: read`, and collects workflow-run and exact-attempt job metadata from GitHub. Automated webhook processing separately requests `Pull requests: read` to collect the change and `Checks: write` to publish the result.
 
 The GitHub App private key remains in a protected runtime environment. Generated JWTs and installation tokens are transient and are never returned, logged, persisted, or forwarded to the intelligence provider.
 
@@ -336,19 +339,31 @@ The server rejects:
 - jobs for another run or head commit
 - incomplete, oversized, or invalid GitHub API responses
 
-The collector does not download job logs. Signed webhook ingestion is implemented as a separate receipt-only boundary; job-log collection, durable automatic event processing, and Check Run writes remain outside this milestone.
+The collector does not download job logs. When automation is enabled, a completed workflow associated with exactly one pull request is placed on a bounded process-local queue, reviewed, and published as a completed Check Run.
 
 ### GitHub App permissions
 
-Create the GitHub App with only the repository permission `Actions: read`, then install it only on repositories that CanaryGuard may review. GitHub documents that repository-installation discovery uses an app JWT and that workflow-run and workflow-job reads accept installation tokens with `Actions: read`:
+For direct evidence collection, the GitHub App needs only `Actions: read`. Automated pull-request Check Runs additionally require `Pull requests: read` and `Checks: write`. GitHub supplies `Metadata: read` as a mandatory permission. Install the app only on repositories that CanaryGuard may review.
+
+Each operation receives a separate repository-scoped installation token:
+
+| Operation | Requested repository permission |
+|---|---|
+| Workflow and job evidence | `Actions: read` |
+| Pull-request metadata and diff | `Pull requests: read` |
+| Completed Check Run publication | `Checks: write` |
+
+No token requests repository contents write access. GitHub documents that repository-installation discovery uses an app JWT, workflow evidence accepts `Actions: read`, pull-request retrieval accepts `Pull requests: read`, and Check Run creation requires `Checks: write`:
 
 - [Generating a GitHub App JWT](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)
 - [Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
 - [Repository installation endpoint](https://docs.github.com/en/rest/apps/apps#get-a-repository-installation-for-the-authenticated-app)
 - [Workflow-run endpoints](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run)
 - [Workflow-job endpoints](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt)
+- [Pull-request endpoint](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
+- [Check Run endpoint](https://docs.github.com/en/rest/checks/runs#create-a-check-run)
 
-The implementation uses the versioned GitHub REST API header `2026-03-10`. It restricts each installation token to the requested repository and requests only `actions: read` even if the installation can access other repositories.
+The implementation uses the versioned GitHub REST API header `2026-03-10`. It restricts every installation token to the requested repository and to the single permission needed by that operation, even if the installation can access other repositories.
 
 ## Ingest signed GitHub workflow events
 
@@ -367,14 +382,15 @@ The receiver:
 
 1. reads at most 256 KiB without altering the body bytes
 2. verifies `X-Hub-Signature-256` before decoding or parsing JSON
-3. accepts only the `workflow_run` event and known workflow-run actions
+3. accepts only known `workflow_run` actions and acknowledges generated `check_run` events without reprocessing them
 4. requires valid bounded workflow, installation, repository, run-attempt, conclusion, and Git SHA fields
 5. binds the top-level repository identity to the workflow-run repository by numeric identifier and case-insensitive full name
 6. binds `workflow_run.head_commit.id` to `workflow_run.head_sha` when the head-commit object is present
 7. reserves the `X-GitHub-Delivery` GUID in a bounded replay registry
-8. returns and logs only a normalized receipt without raw provider content
+8. synchronously enqueues only a completed workflow associated with exactly one pull request when automation is enabled
+9. returns and logs only a normalized receipt without raw provider content
 
-`requested` and `in_progress` workflow-run actions receive HTTP `202` with `status: "IGNORED"`. A valid `completed` action receives HTTP `202` with `status: "ACCEPTED"`:
+`requested` and `in_progress` workflow-run actions receive HTTP `202` with `status: "IGNORED"`. A valid `completed` action receives HTTP `202` with `status: "ACCEPTED"` while automation is disabled. In `CHECKS` mode, a completed run is accepted only when the delivery references exactly one pull request; otherwise it is acknowledged as ignored:
 
 ```json
 {
@@ -398,13 +414,38 @@ A duplicate unexpired delivery receives `409 GITHUB_WEBHOOK_DELIVERY_REPLAYED`. 
 
 Replay state is deliberately bounded and held only in the current application process. It is lost on restart and is not shared by multiple service instances. Durable, distributed replay protection requires an external store and remains outside this milestone.
 
-This endpoint does not call the GitHub REST API, create a release review, write a Check Run, persist the payload, or execute a deployment. It establishes the authenticated ingestion boundary for a later durable event-processing pipeline.
+With automation disabled, this endpoint remains receipt-only and performs no GitHub API calls. With automation enabled, it returns after bounded in-memory enqueueing; the worker then collects exact workflow evidence and the pull-request change, invokes the internal review controller, and creates one completed Check Run. It never executes a deployment.
 
 GitHub recommends validating `X-Hub-Signature-256` before processing a payload, checking both the event type and action, responding within ten seconds, and using `X-GitHub-Delivery` to identify replays:
 
 - [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
 - [Webhook security and delivery best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks)
 - [`workflow_run` event payload](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run)
+
+### Automated GitHub Check Runs
+
+Automation is independently disabled by default. `CHECKS` mode requires the GitHub App provider and signed webhook provider to be enabled at startup.
+
+The bounded worker:
+
+1. revalidates the normalized task
+2. binds the GitHub installation, workflow run ID, attempt, head SHA, repository, and pull-request number
+3. collects exact-attempt job and step outcomes with `Actions: read`
+4. collects bounded pull-request metadata and a diff of at most 200,000 bytes with `Pull requests: read`
+5. runs deterministic, intelligence, and final policy evaluation through the existing review controller
+6. creates a completed Check Run with `Checks: write`
+
+Check conclusions map from final policy:
+
+| CanaryGuard result | GitHub Check conclusion |
+|---|---|
+| `BLOCK` | `failure` |
+| `CONTINUE` with `CANARY` | `neutral` |
+| `CONTINUE` with `STANDARD` | `success` |
+
+The Check Run contains only the review identifier, final decision, validated risk score and level, deployment strategy, policy-override codes, and bounded CI classification enums. It excludes pull-request text, diffs, source code, logs, prompts, credentials, findings prose, required-action prose, model summaries, and raw provider output.
+
+The queue is process-local and non-durable. Queue capacity is enforced before the webhook is acknowledged. If capacity is unavailable, the replay reservation is released and the endpoint returns `503`, allowing GitHub to redeliver later.
 
 ## Final deployment policy
 
@@ -691,6 +732,30 @@ unset CANARYGUARD_GITHUB_WEBHOOK_PROVIDER
 
 Do not reuse `CANARYGUARD_API_KEY`, an OpenAI key, or the GitHub App private key as the webhook secret.
 
+### GitHub Check Run automation selection
+
+| Environment variable | Requirement | Default |
+|---|---|---|
+| `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER` | `DISABLED` or `CHECKS` | `DISABLED` |
+| `GITHUB_AUTOMATION_QUEUE_CAPACITY` | Integer from 1 to 1,000 | `100` |
+| `GITHUB_AUTOMATION_CONCURRENCY` | Integer from 1 to 10 | `1` |
+
+Keep automatic reviews disabled until the GitHub App has `Actions: read`, `Pull requests: read`, and `Checks: write`, and both GitHub providers are configured:
+
+```bash
+export CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=DISABLED
+```
+
+Enable the bounded process-local worker only after those prerequisites are satisfied:
+
+```bash
+export CANARYGUARD_GITHUB_PROVIDER=APP
+export CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB
+export CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS
+```
+
+The server rejects `CHECKS` mode at startup if either required GitHub provider is disabled.
+
 ## Docker Compose
 
 Generate a temporary local API key:
@@ -735,6 +800,8 @@ GitHub App collection remains `DISABLED` unless `CANARYGUARD_GITHUB_PROVIDER=APP
 
 Signed webhook ingestion independently remains `DISABLED` unless `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB` and `GITHUB_WEBHOOK_SECRET` is loaded into the current shell. Never write the webhook secret into Compose configuration or an image.
 
+Automatic Check Run publication independently remains `DISABLED` unless `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS`. `CHECKS` mode also requires both GitHub providers and the expanded least-privilege GitHub App permissions documented above.
+
 ## Validation
 
 Run the complete local validation suite:
@@ -757,11 +824,13 @@ The public continuous-integration job:
 - forces `CANARYGUARD_INTELLIGENCE_PROVIDER=MOCK`
 - forces `CANARYGUARD_GITHUB_PROVIDER=DISABLED`
 - forces `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=DISABLED`
+- forces `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=DISABLED`
 - removes `OPENAI_API_KEY` from the job environment
 - fails if GitHub App credential variables unexpectedly reach public CI
 - fails if `GITHUB_WEBHOOK_SECRET` unexpectedly reaches public CI
 - fails if an OpenAI key unexpectedly reaches the public validation job
 - performs no GitHub App API requests
+- creates no GitHub Check Runs
 - performs no paid OpenAI requests
 
 The deployment job declares no GitHub repository permissions. Deployment credentials remain in protected environment stores and are not required by pull-request validation, including validation triggered from forks.
@@ -802,6 +871,14 @@ GITHUB_WEBHOOK_SECRET=<dedicated high-entropy webhook secret>
 ```
 
 Optionally configure the replay TTL and capacity within their documented bounds. In the GitHub App settings, use the HTTPS payload URL ending in `/github/webhooks`, keep SSL verification enabled, and subscribe only to the Workflow runs event.
+
+After adding `Pull requests: read` and `Checks: write` to the installed GitHub App and approving the permission update, enable automatic Check Runs with:
+
+```text
+CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS
+```
+
+The queue capacity and concurrency may be configured within their documented bounds. Keep the provider `DISABLED` when durable processing is required; the current queue intentionally does not survive a restart.
 
 Do not store production secrets in GitHub source files, workflow definitions, Docker configuration, build arguments, or container layers.
 
@@ -849,9 +926,12 @@ src/
 │   ├── github-api-client.ts
 │   ├── github-app-config.ts
 │   ├── github-app-jwt.ts
+│   ├── github-automation-config.ts
 │   ├── github-webhook-config.ts
 │   ├── github-webhook-receiver.ts
-│   └── github-webhook-replay-guard.ts
+│   ├── github-webhook-replay-guard.ts
+│   ├── github-workflow-automation.ts
+│   └── github-workflow-task.ts
 ├── middleware/
 │   ├── http-error.ts
 │   ├── read-json-body.ts
@@ -877,8 +957,12 @@ The current MVP intentionally has these limitations:
 - tenant accounts and role-based authorization are not implemented
 - request quotas and distributed rate limiting are not implemented
 - webhook replay protection is process-local and not durable or shared across instances
-- webhook receipts do not yet invoke the Review API or a durable asynchronous event processor
-- Check Run writes are not implemented
+- automatic workflow processing uses a bounded process-local queue; tasks can be lost on restart and are not shared across instances
+- Check Runs are created rather than durably upserted; a redelivery after replay state is lost can create another run
+- automated workflow processing requires exactly one pull request in the completed `workflow_run` payload
+- automated workflow processing does not yet ingest separate `pull_request` events or external security findings
+- Check Run publication for fork-owned head commits is not yet validated
+- PR summary comments are not implemented
 - predictions are not yet correlated with deployment outcomes
 - deployment actions are recommended but not automatically executed by the Review API
 

@@ -816,3 +816,398 @@ test("bounds every GitHub API request with a timeout", async () => {
     "GITHUB_PROVIDER_UNAVAILABLE",
   );
 });
+
+test("collects a bounded pull-request change with a repository-scoped read token", async () => {
+  const pullRequestNumber = 14;
+  const baseSha =
+    "f50aeca81783a0240afd70d64d1ee7329c890f91";
+  const diff =
+    "+export const checkRun = true;";
+
+  const fakeFetch = createFetch(
+    (url, init) => {
+      if (url.endsWith("/installation")) {
+        return jsonResponse(
+          installationResponse,
+        );
+      }
+
+      if (url.endsWith("/access_tokens")) {
+        return jsonResponse({
+          ...tokenResponse,
+          permissions: {
+            pull_requests: "read",
+          },
+        });
+      }
+
+      const accept = new Headers(
+        init?.headers,
+      ).get("accept");
+
+      if (
+        accept
+        === "application/vnd.github.diff"
+      ) {
+        return new Response(diff, {
+          status: 200,
+        });
+      }
+
+      return jsonResponse({
+        number: pullRequestNumber,
+        title:
+          "Publish a GitHub Check Run",
+        body:
+          "Use bounded structured output.",
+        base: {
+          sha: baseSha,
+          repo: {
+            full_name:
+              "RWAMBA/the-autonomous-canary",
+          },
+        },
+        head: {
+          sha: headSha,
+        },
+      });
+    },
+  );
+
+  const result = await new GitHubAppApiClient(
+    config,
+    {
+      fetchImplementation:
+        fakeFetch.implementation,
+    },
+  ).collectPullRequestChange({
+    repository: request.repository,
+    pullRequestNumber,
+    expectedHeadSha: headSha,
+    expectedInstallationId: 901,
+  });
+
+  assert.deepEqual(result, {
+    title:
+      "Publish a GitHub Check Run",
+    description:
+      "Use bounded structured output.",
+    baseSha,
+    headSha,
+    diff,
+  });
+
+  assert.equal(
+    fakeFetch.requests.length,
+    4,
+  );
+  assert.deepEqual(
+    JSON.parse(
+      String(
+        fakeFetch.requests[1]
+          ?.init?.body,
+      ),
+    ),
+    {
+      repositories: [
+        "the-autonomous-canary",
+      ],
+      permissions: {
+        pull_requests: "read",
+      },
+    },
+  );
+});
+
+test("publishes only controlled review fields through a Checks write token", async () => {
+  const secretModelText =
+    "untrusted-model-text-must-not-be-published";
+  let checkRunBody: unknown;
+
+  const fakeFetch = createFetch(
+    (url, init) => {
+      if (url.endsWith("/installation")) {
+        return jsonResponse(
+          installationResponse,
+        );
+      }
+
+      if (url.endsWith("/access_tokens")) {
+        return jsonResponse({
+          ...tokenResponse,
+          permissions: {
+            checks: "write",
+          },
+        });
+      }
+
+      checkRunBody = JSON.parse(
+        String(init?.body),
+      );
+
+      return jsonResponse({
+        id: 7_001,
+        name:
+          "CanaryGuard release review",
+        head_sha: headSha,
+        status: "completed",
+        conclusion: "failure",
+        external_id:
+          `canaryguard:${request.runId}:2`,
+      }, 201);
+    },
+  );
+
+  const publication =
+    await new GitHubAppApiClient(
+      config,
+      {
+        fetchImplementation:
+          fakeFetch.implementation,
+      },
+    ).publishCheckRun({
+      repository: request.repository,
+      expectedInstallationId: 901,
+      workflowRunId: request.runId,
+      runAttempt: 2,
+      headSha,
+      review: {
+        reviewId:
+          "59b6f6d7-b052-4a40-8678-7621b8f44286",
+        repository:
+          request.repository,
+        headSha,
+        risk: {
+          score: 90,
+          level: "CRITICAL",
+        },
+        summary: secretModelText,
+        findings: [
+          {
+            code: "CI_FAILED",
+            source:
+              "INTELLIGENCE",
+            severity: "CRITICAL",
+            title: secretModelText,
+            explanation:
+              secretModelText,
+          },
+        ],
+        requiredActions: [
+          secretModelText,
+        ],
+        policyOverrides: [
+          "CI_FAILED",
+        ],
+        analysis: {
+          provider: "MOCK",
+          modelTarget:
+            "mock-canaryguard-v1",
+          promptVersion:
+            "canaryguard-review-v3",
+        },
+        decision: "BLOCK",
+        deployment: {
+          strategy: "BLOCKED",
+          initialTrafficPercent: 0,
+        },
+      },
+    });
+
+  assert.deepEqual(publication, {
+    checkRunId: 7_001,
+  });
+  assert.deepEqual(
+    JSON.parse(
+      String(
+        fakeFetch.requests[1]
+          ?.init?.body,
+      ),
+    ),
+    {
+      repositories: [
+        "the-autonomous-canary",
+      ],
+      permissions: {
+        checks: "write",
+      },
+    },
+  );
+  assert.equal(
+    JSON.stringify(checkRunBody).includes(
+      secretModelText,
+    ),
+    false,
+  );
+  assert.deepEqual(checkRunBody, {
+    name:
+      "CanaryGuard release review",
+    head_sha: headSha,
+    details_url:
+      `https://github.com/RWAMBA/the-autonomous-canary/actions/runs/${request.runId}/attempts/2`,
+    external_id:
+      `canaryguard:${request.runId}:2`,
+    status: "completed",
+    conclusion: "failure",
+    output: {
+      title: "CanaryGuard: BLOCK",
+      summary: [
+        "CanaryGuard completed a release review.",
+        "",
+        "- Review ID: 59b6f6d7-b052-4a40-8678-7621b8f44286",
+        "- Decision: BLOCK",
+        "- Risk: CRITICAL (90/100)",
+        "- Deployment: BLOCKED (0% initial traffic)",
+        "- Policy overrides: CI_FAILED",
+      ].join("\n"),
+    },
+  });
+});
+
+test("rejects a webhook-bound workflow attempt mismatch before requesting jobs", async () => {
+  const fakeFetch = createFetch();
+  let capturedError: unknown;
+
+  try {
+    await new GitHubAppApiClient(
+      config,
+      {
+        fetchImplementation:
+          fakeFetch.implementation,
+      },
+    ).collect({
+      ...request,
+      expectedRunAttempt: 1,
+      expectedInstallationId: 901,
+    });
+  } catch (error) {
+    capturedError = error;
+  }
+
+  assertHttpError(
+    capturedError,
+    409,
+    "GITHUB_RUN_ATTEMPT_MISMATCH",
+  );
+  assert.equal(
+    fakeFetch.requests.length,
+    3,
+  );
+});
+
+test("maps canary and standard release strategies to neutral and successful checks", async () => {
+  const conclusions: string[] = [];
+  let nextCheckRunId = 8_000;
+
+  const fakeFetch = createFetch(
+    (url, init) => {
+      if (url.endsWith("/installation")) {
+        return jsonResponse(
+          installationResponse,
+        );
+      }
+
+      if (url.endsWith("/access_tokens")) {
+        return jsonResponse({
+          ...tokenResponse,
+          permissions: {
+            checks: "write",
+          },
+        });
+      }
+
+      const body = JSON.parse(
+        String(init?.body),
+      ) as {
+        conclusion: string;
+        external_id: string;
+      };
+
+      conclusions.push(body.conclusion);
+      nextCheckRunId += 1;
+
+      return jsonResponse({
+        id: nextCheckRunId,
+        name:
+          "CanaryGuard release review",
+        head_sha: headSha,
+        status: "completed",
+        conclusion: body.conclusion,
+        external_id:
+          body.external_id,
+      }, 201);
+    },
+  );
+
+  const client = new GitHubAppApiClient(
+    config,
+    {
+      fetchImplementation:
+        fakeFetch.implementation,
+    },
+  );
+
+  const commonReview = {
+    reviewId:
+      "59b6f6d7-b052-4a40-8678-7621b8f44286",
+    repository: request.repository,
+    headSha,
+    findings: [],
+    requiredActions: [],
+    policyOverrides: [],
+    analysis: {
+      provider: "MOCK" as const,
+      modelTarget:
+        "mock-canaryguard-v1",
+      promptVersion:
+        "canaryguard-review-v3",
+    },
+    decision: "CONTINUE" as const,
+  };
+
+  await client.publishCheckRun({
+    repository: request.repository,
+    expectedInstallationId: 901,
+    workflowRunId: request.runId,
+    runAttempt: 1,
+    headSha,
+    review: {
+      ...commonReview,
+      risk: {
+        score: 60,
+        level: "HIGH",
+      },
+      summary: "Use a canary.",
+      deployment: {
+        strategy: "CANARY",
+        initialTrafficPercent: 5,
+      },
+    },
+  });
+
+  await client.publishCheckRun({
+    repository: request.repository,
+    expectedInstallationId: 901,
+    workflowRunId: request.runId,
+    runAttempt: 2,
+    headSha,
+    review: {
+      ...commonReview,
+      risk: {
+        score: 20,
+        level: "LOW",
+      },
+      summary:
+        "Continue at standard traffic.",
+      deployment: {
+        strategy: "STANDARD",
+        initialTrafficPercent: 100,
+      },
+    },
+  });
+
+  assert.deepEqual(conclusions, [
+    "neutral",
+    "success",
+  ]);
+});

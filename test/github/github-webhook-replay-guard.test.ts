@@ -99,6 +99,27 @@ test("rejects invalid replay-guard construction values", () => {
   );
 });
 
+test("releases a reservation so GitHub can redeliver after transient backpressure", () => {
+  const guard =
+    new InMemoryGitHubWebhookReplayGuard({
+      ttlMs: 60_000,
+      capacity: 1,
+      clock: () => 1_000,
+    });
+
+  assert.equal(
+    guard.reserve("delivery-1"),
+    "ACCEPTED",
+  );
+
+  guard.release("delivery-1");
+
+  assert.equal(
+    guard.reserve("delivery-1"),
+    "ACCEPTED",
+  );
+});
+
 test("rejects an invalid replay clock", () => {
   const guard =
     new InMemoryGitHubWebhookReplayGuard({
