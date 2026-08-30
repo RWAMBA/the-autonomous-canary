@@ -12,6 +12,7 @@ import {
   parseGitHubWorkflowRunWebhook,
 } from "../../src/dto/github-webhook.js";
 import {
+  normalizePostgresConnectionUrl,
   PostgresReleaseLifecycleStore,
 } from "../../src/persistence/postgres-release-lifecycle-store.js";
 
@@ -132,6 +133,50 @@ function createPool(
     connect: async () => client,
   } as unknown as Pool;
 }
+
+test("normalizes required PostgreSQL TLS to certificate and hostname verification", () => {
+  const normalized =
+    normalizePostgresConnectionUrl(
+      "postgresql://canaryguard:test-password@ep-example-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+      "REQUIRE",
+    );
+  const url = new URL(normalized);
+
+  assert.equal(
+    url.hostname,
+    "ep-example-pooler.eu-central-1.aws.neon.tech",
+  );
+  assert.equal(
+    url.pathname,
+    "/neondb",
+  );
+  assert.deepEqual(
+    url.searchParams.getAll("sslmode"),
+    [
+      "verify-full",
+    ],
+  );
+  assert.equal(
+    url.searchParams.get("channel_binding"),
+    "require",
+  );
+});
+
+test("normalizes intentionally local PostgreSQL connections to disabled TLS", () => {
+  const normalized =
+    normalizePostgresConnectionUrl(
+      "postgresql://canaryguard:test-password@postgres:5432/canaryguard?sslmode=verify-full",
+      "DISABLE",
+    );
+  const url = new URL(normalized);
+
+  assert.deepEqual(
+    url.searchParams.getAll("sslmode"),
+    [
+      "disable",
+    ],
+  );
+});
 
 test("cancels a closed pull request release and its pending automation", async () => {
   const statements: string[] = [];

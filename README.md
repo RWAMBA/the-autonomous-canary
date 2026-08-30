@@ -801,7 +801,7 @@ export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
 npm run db:migrate
 ```
 
-The migration is transactional and protected by a PostgreSQL advisory lock. Application startup verifies migration `001_release_lifecycle` and fails closed when it is absent. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
+The migration is transactional and protected by a PostgreSQL advisory lock. Application startup verifies migration `001_release_lifecycle` and fails closed when it is absent. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
 
 When PostgreSQL-backed webhook ingestion is enabled, `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS` is also required. This prevents accepted durable deliveries from accumulating without a worker.
 

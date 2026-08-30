@@ -256,7 +256,10 @@ export function createPostgresPool(
 ): Pool {
   return new Pool({
     connectionString:
-      config.databaseUrl,
+      normalizePostgresConnectionUrl(
+        config.databaseUrl,
+        config.sslMode,
+      ),
     max: config.poolMaximum,
     connectionTimeoutMillis:
       config.connectionTimeoutMs,
@@ -270,6 +273,22 @@ export function createPostgresPool(
         }
       : false,
   });
+}
+
+export function normalizePostgresConnectionUrl(
+  databaseUrl: string,
+  sslMode: EnabledPostgresPersistenceConfig["sslMode"],
+): string {
+  const url = new URL(databaseUrl);
+
+  url.searchParams.set(
+    "sslmode",
+    sslMode === "REQUIRE"
+      ? "verify-full"
+      : "disable",
+  );
+
+  return url.toString();
 }
 
 export class PostgresReleaseLifecycleStore
