@@ -16,6 +16,7 @@ import type {
 } from "../../src/github/github-api-client.js";
 import {
   DefaultGitHubWorkflowRunProcessor,
+  DurableGitHubWorkflowRunWorker,
   InMemoryGitHubWorkflowRunQueue,
 } from "../../src/github/github-workflow-automation.js";
 import type {
@@ -24,6 +25,9 @@ import type {
 import {
   HttpError,
 } from "../../src/middleware/http-error.js";
+import type {
+  GitHubLifecycleStore,
+} from "../../src/persistence/release-lifecycle-store.js";
 
 const headSha =
   "7f7384d2ff38b5b908a0fc03787438dfbeab75c1";
@@ -385,6 +389,200 @@ test("logs only a controlled error code when an asynchronous task fails", async 
   assert.equal(
     JSON.stringify(failures).includes(
       "provider secret response",
+    ),
+    false,
+  );
+});
+
+test("claims and completes a durable workflow task with its stable release identifier", async () => {
+  const durableTask = {
+    ...task,
+    releaseId:
+      "123e4567-e89b-42d3-a456-426614174000",
+  };
+  const completed: unknown[] = [];
+  let claimed = false;
+
+  const store:
+    GitHubLifecycleStore = {
+      durable: true,
+      acceptPullRequestDelivery:
+        async () => ({
+          releaseId:
+            durableTask.releaseId,
+        }),
+      acceptWorkflowRunDelivery:
+        async () => ({
+          status: "ACCEPTED",
+          releaseId:
+            durableTask.releaseId,
+          task: durableTask,
+        }),
+      acceptIgnoredDelivery:
+        async () => undefined,
+      claimWorkflowRunTask:
+        async () => {
+          if (claimed) {
+            return undefined;
+          }
+
+          claimed = true;
+          return {
+            taskId: 41,
+            attempts: 1,
+            task: durableTask,
+          };
+        },
+      completeWorkflowRunTask:
+        async (taskId, checkRunId) => {
+          completed.push({
+            taskId,
+            checkRunId,
+          });
+        },
+      retryWorkflowRunTask:
+        async () => {
+          assert.fail(
+            "Successful tasks must not be retried.",
+          );
+        },
+      close: async () => undefined,
+    };
+
+  const worker =
+    new DurableGitHubWorkflowRunWorker(
+      {
+        concurrency: 1,
+        pollIntervalMs: 1_000,
+        leaseMs: 60_000,
+        maximumAttempts: 3,
+        retryBaseMs: 5_000,
+      },
+      {
+        store,
+        processor: {
+          process: async (input) => {
+            assert.equal(
+              input.releaseId,
+              durableTask.releaseId,
+            );
+            return {
+              checkRunId: 7_001,
+            };
+          },
+        },
+      },
+    );
+
+  assert.equal(
+    await worker.runOnce(),
+    true,
+  );
+  assert.deepEqual(completed, [
+    {
+      taskId: 41,
+      checkRunId: 7_001,
+    },
+  ]);
+  assert.equal(
+    await worker.runOnce(),
+    false,
+  );
+});
+
+test("bounds durable retries and records only a controlled error code", async () => {
+  const retried: unknown[] = [];
+  const durableTask = {
+    ...task,
+    releaseId:
+      "123e4567-e89b-42d3-a456-426614174000",
+  };
+
+  const store = {
+    durable: true as const,
+    acceptPullRequestDelivery:
+      async () => ({
+        releaseId:
+          durableTask.releaseId,
+      }),
+    acceptWorkflowRunDelivery:
+      async () => ({
+        status: "ACCEPTED" as const,
+        releaseId:
+          durableTask.releaseId,
+        task: durableTask,
+      }),
+    acceptIgnoredDelivery:
+      async () => undefined,
+    claimWorkflowRunTask:
+      async () => ({
+        taskId: 42,
+        attempts: 3,
+        task: durableTask,
+      }),
+    completeWorkflowRunTask:
+      async () => {
+        assert.fail(
+          "Failed tasks must not complete.",
+        );
+      },
+    retryWorkflowRunTask:
+      async (
+        taskId: number,
+        errorCode: string,
+        retryAt: Date,
+        terminal: boolean,
+      ) => {
+        retried.push({
+          taskId,
+          errorCode,
+          retryAt:
+            retryAt.toISOString(),
+          terminal,
+        });
+      },
+    close: async () => undefined,
+  } satisfies GitHubLifecycleStore;
+
+  const worker =
+    new DurableGitHubWorkflowRunWorker(
+      {
+        concurrency: 1,
+        pollIntervalMs: 1_000,
+        leaseMs: 60_000,
+        maximumAttempts: 3,
+        retryBaseMs: 5_000,
+      },
+      {
+        store,
+        clock: () => new Date(
+          "2026-08-30T00:00:00.000Z",
+        ),
+        processor: {
+          process: async () => {
+            throw new Error(
+              "credential-bearing provider response",
+            );
+          },
+        },
+      },
+    );
+
+  await worker.runOnce();
+
+  assert.deepEqual(retried, [
+    {
+      taskId: 42,
+      errorCode:
+        "GITHUB_AUTOMATION_FAILED",
+      retryAt:
+        "2026-08-30T00:00:20.000Z",
+      terminal: true,
+    },
+  ]);
+  assert.equal(
+    JSON.stringify(retried).includes(
+      "credential-bearing",
     ),
     false,
   );

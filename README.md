@@ -2,7 +2,7 @@
 
 CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a software change is safe to release, identifies possible failure risks, and selects an appropriate deployment strategy.
 
-The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs, plus optional signed GitHub webhook ingestion and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
+The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs, plus optional signed GitHub webhook ingestion, durable release-lifecycle persistence, and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
 ## Current MVP status
 
@@ -17,16 +17,21 @@ The MVP:
 - investigates bounded GitHub Actions workflow, job, step, and log-excerpt evidence
 - classifies failed or incomplete CI evidence into a bounded diagnostic contract
 - optionally collects completed workflow-run and exact-attempt job metadata through a least-privilege GitHub App
-- optionally validates and acknowledges signed GitHub `workflow_run` webhook deliveries
-- optionally queues completed pull-request workflows for automatic review
+- optionally validates signed GitHub `pull_request`, `workflow_run`, and generated `check_run` webhook deliveries
+- correlates pull requests, workflow attempts, reviews, and Check Runs to one immutable release identifier
+- optionally stores normalized release lifecycle records in PostgreSQL
+- durably rejects duplicate webhook deliveries across restarts and service instances when PostgreSQL is enabled
+- durably leases completed pull-request workflow tasks with bounded retries when PostgreSQL is enabled
+- rejects workflow evidence for a pull-request head that has already been superseded
 - fetches bounded pull-request metadata and diffs through a repository-scoped token
-- publishes controlled release decisions as completed GitHub Check Runs
-- rejects bounded in-process delivery replays
+- creates or updates controlled release decisions as completed GitHub Check Runs under one stable external identifier
+- retains bounded in-process replay and queue behavior only when persistence is intentionally disabled
 - returns a structured CI investigation without returning raw logs
 - returns log-free evidence references, confidence, retry guidance, and release-approval impact
 - blocks failed tests and critical security findings
 - blocks authoritative failed CI conclusions even when aggregate test evidence says `passed`
 - records structured intelligence telemetry
+- records normalized predictions, deterministic findings, model accounting, final policy decisions, and audit events without storing raw diffs, CI logs, prompts, credentials, or model output
 - supports authenticated local, Docker, CI, and Render execution
 
 The optional `OPENAI` provider:
@@ -365,7 +370,7 @@ No token requests repository contents write access. GitHub documents that reposi
 
 The implementation uses the versioned GitHub REST API header `2026-03-10`. It restricts every installation token to the requested repository and to the single permission needed by that operation, even if the installation can access other repositories.
 
-## Ingest signed GitHub workflow events
+## Ingest signed GitHub lifecycle events
 
 Webhook ingestion is disabled by default. When enabled, `POST /github/webhooks` accepts JSON deliveries from the GitHub App without requiring `CANARYGUARD_API_KEY`.
 
@@ -373,7 +378,7 @@ Every delivery must include:
 
 ```text
 Content-Type: application/json
-X-GitHub-Event: workflow_run
+X-GitHub-Event: pull_request, workflow_run, or check_run
 X-GitHub-Delivery: <GitHub delivery GUID>
 X-Hub-Signature-256: sha256=<HMAC-SHA256 digest>
 ```
@@ -382,13 +387,15 @@ The receiver:
 
 1. reads at most 256 KiB without altering the body bytes
 2. verifies `X-Hub-Signature-256` before decoding or parsing JSON
-3. accepts only known `workflow_run` actions and acknowledges generated `check_run` events without reprocessing them
+3. accepts only bounded `pull_request` and `workflow_run` actions and acknowledges generated `check_run` events without reprocessing them
 4. requires valid bounded workflow, installation, repository, run-attempt, conclusion, and Git SHA fields
 5. binds the top-level repository identity to the workflow-run repository by numeric identifier and case-insensitive full name
 6. binds `workflow_run.head_commit.id` to `workflow_run.head_sha` when the head-commit object is present
-7. reserves the `X-GitHub-Delivery` GUID in a bounded replay registry
-8. synchronously enqueues only a completed workflow associated with exactly one pull request when automation is enabled
-9. returns and logs only a normalized receipt without raw provider content
+7. stores the `X-GitHub-Delivery` GUID under a database uniqueness constraint when PostgreSQL is enabled
+8. records direct pull-request open, reopen, synchronize, ready-for-review, and close events
+9. correlates a completed workflow to exactly one pull request and the pull request's current head SHA
+10. atomically creates a durable automation task before acknowledging an accepted workflow when PostgreSQL is enabled
+11. returns and logs only a normalized receipt without raw provider content
 
 `requested` and `in_progress` workflow-run actions receive HTTP `202` with `status: "IGNORED"`. A valid `completed` action receives HTTP `202` with `status: "ACCEPTED"` while automation is disabled. In `CHECKS` mode, a completed run is accepted only when the delivery references exactly one pull request; otherwise it is acknowledged as ignored:
 
@@ -410,30 +417,33 @@ The receiver:
 }
 ```
 
-A duplicate unexpired delivery receives `409 GITHUB_WEBHOOK_DELIVERY_REPLAYED`. If the bounded registry is full of unexpired delivery identifiers, new deliveries fail closed with HTTP `503` until entries expire.
+A duplicate durable delivery receives `409 GITHUB_WEBHOOK_DELIVERY_REPLAYED`, including after a restart or when another service instance received the original delivery. With persistence disabled, the legacy bounded in-process registry remains available and can return HTTP `503` while full.
 
-Replay state is deliberately bounded and held only in the current application process. It is lost on restart and is not shared by multiple service instances. Durable, distributed replay protection requires an external store and remains outside this milestone.
+Direct `pull_request` processing requires PostgreSQL persistence. This closes the earlier workflow-only correlation gap: a synchronize event establishes the current head before its workflow completes, supersedes older pending releases, and prevents a completed workflow for an older head from entering the review queue. Closing a pull request cancels its active release and queued work; reopening it restores that release to pending, while completed workflows for a still-closed pull request are recorded and ignored.
 
-With automation disabled, this endpoint remains receipt-only and performs no GitHub API calls. With automation enabled, it returns after bounded in-memory enqueueing; the worker then collects exact workflow evidence and the pull-request change, invokes the internal review controller, and creates one completed Check Run. It never executes a deployment.
+With both persistence and automation enabled, the endpoint returns only after the delivery and task commit. A polling worker claims tasks with PostgreSQL row locks, a bounded lease, and bounded exponential retry scheduling. A crashed worker's expired lease becomes claimable by another instance. The worker then collects exact workflow evidence and the pull-request change, invokes the internal review controller, and upserts one completed Check Run. It never executes a deployment.
+
+When persistence is disabled, the previous bounded process-local replay guard and queue remain available for development compatibility. Direct pull-request events fail with HTTP `503` so GitHub can redeliver them after durable persistence is enabled.
 
 GitHub recommends validating `X-Hub-Signature-256` before processing a payload, checking both the event type and action, responding within ten seconds, and using `X-GitHub-Delivery` to identify replays:
 
 - [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
 - [Webhook security and delivery best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks)
+- [`pull_request` event payload](https://docs.github.com/en/webhooks/webhook-events-and-payloads#pull_request)
 - [`workflow_run` event payload](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run)
 
 ### Automated GitHub Check Runs
 
 Automation is independently disabled by default. `CHECKS` mode requires the GitHub App provider and signed webhook provider to be enabled at startup.
 
-The bounded worker:
+The durable worker:
 
 1. revalidates the normalized task
 2. binds the GitHub installation, workflow run ID, attempt, head SHA, repository, and pull-request number
 3. collects exact-attempt job and step outcomes with `Actions: read`
 4. collects bounded pull-request metadata and a diff of at most 200,000 bytes with `Pull requests: read`
 5. runs deterministic, intelligence, and final policy evaluation through the existing review controller
-6. creates a completed Check Run with `Checks: write`
+6. creates a completed Check Run with `Checks: write`, or updates the existing run with the same workflow-run/attempt external identifier
 
 Check conclusions map from final policy:
 
@@ -445,7 +455,7 @@ Check conclusions map from final policy:
 
 The Check Run contains only the review identifier, final decision, validated risk score and level, deployment strategy, policy-override codes, and bounded CI classification enums. It excludes pull-request text, diffs, source code, logs, prompts, credentials, findings prose, required-action prose, model summaries, and raw provider output.
 
-The queue is process-local and non-durable. Queue capacity is enforced before the webhook is acknowledged. If capacity is unavailable, the replay reservation is released and the endpoint returns `503`, allowing GitHub to redeliver later.
+PostgreSQL tasks use `FOR UPDATE SKIP LOCKED`, bounded leases, and bounded retry attempts. Multiple workers may safely share the queue. The stable Check Run external identifier makes retries idempotent: a retry updates the existing CanaryGuard run rather than creating another one.
 
 ## Final deployment policy
 
@@ -746,7 +756,7 @@ Keep automatic reviews disabled until the GitHub App has `Actions: read`, `Pull 
 export CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=DISABLED
 ```
 
-Enable the bounded process-local worker only after those prerequisites are satisfied:
+Enable automated processing only after those prerequisites are satisfied:
 
 ```bash
 export CANARYGUARD_GITHUB_PROVIDER=APP
@@ -755,6 +765,68 @@ export CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS
 ```
 
 The server rejects `CHECKS` mode at startup if either required GitHub provider is disabled.
+
+### Release-lifecycle persistence
+
+Persistence is independently disabled by default so local development and public CI do not require a database.
+
+| Environment variable | Requirement | Default |
+|---|---|---|
+| `CANARYGUARD_PERSISTENCE_PROVIDER` | `DISABLED` or `POSTGRES` | `DISABLED` |
+| `DATABASE_URL` | Complete PostgreSQL URL; required only with `POSTGRES` | None |
+| `DATABASE_SSL_MODE` | `REQUIRE` or `DISABLE` | `REQUIRE` |
+| `DATABASE_POOL_MAXIMUM` | Integer from 1 to 20 | `5` |
+| `DATABASE_CONNECTION_TIMEOUT_MS` | Integer from 1,000 to 60,000 | `10000` |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | Integer from 1,000 to 60,000 | `15000` |
+| `GITHUB_AUTOMATION_POLL_INTERVAL_MS` | Integer from 100 to 60,000 | `1000` |
+| `GITHUB_AUTOMATION_LEASE_MS` | Integer from 10,000 to 600,000 | `60000` |
+| `GITHUB_AUTOMATION_MAX_ATTEMPTS` | Integer from 1 to 10 | `3` |
+| `GITHUB_AUTOMATION_RETRY_BASE_MS` | Integer from 100 to 60,000 | `5000` |
+
+Create a dedicated PostgreSQL database and role, load the connection URL without printing it, and apply the migration before starting a PostgreSQL-backed server:
+
+```bash
+set +x
+
+read \
+  -r \
+  -s \
+  -p "Enter DATABASE_URL: " \
+  DATABASE_URL
+printf '\n'
+
+export DATABASE_URL
+export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
+
+npm run db:migrate
+```
+
+The migration is transactional and protected by a PostgreSQL advisory lock. Application startup verifies migration `001_release_lifecycle` and fails closed when it is absent. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
+
+When PostgreSQL-backed webhook ingestion is enabled, `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS` is also required. This prevents accepted durable deliveries from accumulating without a worker.
+
+The lifecycle schema stores:
+
+| Record | Correlation |
+|---|---|
+| Repository and pull request | GitHub numeric identity and pull-request number |
+| Release | Immutable `release_id` plus repository, base SHA, and head SHA |
+| Workflow and automation task | `release_id`, run ID, attempt, delivery, and current head |
+| Prediction and final decision | `release_id`, risk, strategy, traffic, and policy overrides |
+| Deterministic and model assessment | `release_id`, bounded findings, model version, accounting, and cost estimate |
+| Deployment, observation, and outcome | `release_id` and deployment attempt identity |
+| Audit event and policy proposal | `release_id`, actor classification, decision state, and timestamps |
+
+The application never stores submitted diffs, raw CI logs, prompts, API credentials, GitHub tokens, private keys, or raw model output. Model records contain normalized enums, counts, latency, token accounting, and estimated cost only.
+
+Prediction accuracy is measure-only. The `release_prediction_accuracy` view joins recorded predictions to later outcomes, but it never changes hard-coded policy. `policy_change_proposals` require an explicit `APPROVED` or `REJECTED` state, decision timestamp, and human identifier before a proposal is no longer pending.
+
+Clear the database credential after local administration:
+
+```bash
+unset DATABASE_URL
+unset CANARYGUARD_PERSISTENCE_PROVIDER
+```
 
 ## Docker Compose
 
@@ -802,6 +874,8 @@ Signed webhook ingestion independently remains `DISABLED` unless `CANARYGUARD_GI
 
 Automatic Check Run publication independently remains `DISABLED` unless `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS`. `CHECKS` mode also requires both GitHub providers and the expanded least-privilege GitHub App permissions documented above.
 
+PostgreSQL persistence remains `DISABLED` unless `CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES`. Compose forwards a protected `DATABASE_URL` and the bounded database and worker controls but does not embed or provision a database. Apply the migration through a protected administrative environment before starting the stack.
+
 ## Validation
 
 Run the complete local validation suite:
@@ -825,9 +899,11 @@ The public continuous-integration job:
 - forces `CANARYGUARD_GITHUB_PROVIDER=DISABLED`
 - forces `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=DISABLED`
 - forces `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=DISABLED`
+- forces `CANARYGUARD_PERSISTENCE_PROVIDER=DISABLED`
 - removes `OPENAI_API_KEY` from the job environment
 - fails if GitHub App credential variables unexpectedly reach public CI
 - fails if `GITHUB_WEBHOOK_SECRET` unexpectedly reaches public CI
+- fails if `DATABASE_URL` unexpectedly reaches public CI
 - fails if an OpenAI key unexpectedly reaches the public validation job
 - performs no GitHub App API requests
 - creates no GitHub Check Runs
@@ -870,7 +946,7 @@ CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=GITHUB
 GITHUB_WEBHOOK_SECRET=<dedicated high-entropy webhook secret>
 ```
 
-Optionally configure the replay TTL and capacity within their documented bounds. In the GitHub App settings, use the HTTPS payload URL ending in `/github/webhooks`, keep SSL verification enabled, and subscribe only to the Workflow runs event.
+Optionally configure the process-local replay TTL and capacity within their documented bounds. In the GitHub App settings, use the HTTPS payload URL ending in `/github/webhooks`, keep SSL verification enabled, and subscribe only to the Pull requests and Workflow runs events.
 
 After adding `Pull requests: read` and `Checks: write` to the installed GitHub App and approving the permission update, enable automatic Check Runs with:
 
@@ -878,7 +954,17 @@ After adding `Pull requests: read` and `Checks: write` to the installed GitHub A
 CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS
 ```
 
-The queue capacity and concurrency may be configured within their documented bounds. Keep the provider `DISABLED` when durable processing is required; the current queue intentionally does not survive a restart.
+The queue capacity and concurrency may be configured within their documented bounds.
+
+Provision PostgreSQL and apply the migration before enabling durable production processing:
+
+```text
+CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
+DATABASE_URL=<protected PostgreSQL connection URL>
+DATABASE_SSL_MODE=REQUIRE
+```
+
+Run `npm run db:migrate` from a protected administrative environment with the same database configuration, then deploy or restart the service. Startup fails closed if the migration is missing. With PostgreSQL enabled, replay protection, pull-request/head correlation, task leasing, retry state, normalized reviews, and Check Run identifiers survive process restarts and are shared across service instances.
 
 Do not store production secrets in GitHub source files, workflow definitions, Docker configuration, build arguments, or container layers.
 
@@ -939,9 +1025,17 @@ src/
 │   ├── require-review-api-key.ts
 │   ├── sanitize-review-request.ts
 │   └── send-error-response.ts
+├── persistence/
+│   ├── durable-automation-config.ts
+│   ├── persistence-config.ts
+│   ├── postgres-release-lifecycle-store.ts
+│   └── release-lifecycle-store.ts
+├── migrate-database.ts
 ├── app.ts
 └── server.ts
 ```
+
+Database migrations are stored under `db/migrations/`.
 
 ## MVP limitations
 
@@ -952,18 +1046,19 @@ The current MVP intentionally has these limitations:
 - `/reviews` CI evidence remains caller-supplied; `/github/reviews` supports authenticated GitHub metadata collection
 - the GitHub App adapter collects workflow and job metadata but does not download logs
 - probable-cause detail is bounded by the evidence supplied; GitHub App reviews without collected logs may have only job- and step-level evidence
-- reviews are not stored in a database
+- persistence is optional and requires an operator-provisioned PostgreSQL database and migration step
 - authentication uses one service-level API key
 - tenant accounts and role-based authorization are not implemented
 - request quotas and distributed rate limiting are not implemented
-- webhook replay protection is process-local and not durable or shared across instances
-- automatic workflow processing uses a bounded process-local queue; tasks can be lost on restart and are not shared across instances
-- Check Runs are created rather than durably upserted; a redelivery after replay state is lost can create another run
+- process-local replay and queue behavior remains available only when persistence is intentionally disabled
 - automated workflow processing requires exactly one pull request in the completed `workflow_run` payload
-- automated workflow processing does not yet ingest separate `pull_request` events or external security findings
+- direct pull-request events are ingested only when PostgreSQL persistence is enabled
+- automated workflow processing does not yet collect external security findings
 - Check Run publication for fork-owned head commits is not yet validated
 - PR summary comments are not implemented
-- predictions are not yet correlated with deployment outcomes
+- deployment-attempt, canary-observation, and outcome tables are ready, but Phase 5 event ingestion has not populated them yet
+- prediction/outcome reporting remains empty until Phase 5 records deployment events
+- policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API
 
 The current scope is a public portfolio core and service-delivery foundation, not a multi-tenant self-service SaaS.

@@ -941,6 +941,16 @@ test("publishes only controlled review fields through a Checks write token", asy
         });
       }
 
+      if (
+        url.includes("/commits/")
+        && url.includes("/check-runs?")
+      ) {
+        return jsonResponse({
+          total_count: 0,
+          check_runs: [],
+        });
+      }
+
       checkRunBody = JSON.parse(
         String(init?.body),
       );
@@ -1095,6 +1105,127 @@ test("rejects a webhook-bound workflow attempt mismatch before requesting jobs",
   );
 });
 
+test("updates the stable external Check Run instead of publishing a duplicate", async () => {
+  const externalId =
+    `canaryguard:${request.runId}:1`;
+  const methods: string[] = [];
+
+  const fakeFetch = createFetch(
+    (url, init) => {
+      methods.push(
+        String(init?.method),
+      );
+
+      if (url.endsWith("/installation")) {
+        return jsonResponse(
+          installationResponse,
+        );
+      }
+
+      if (url.endsWith("/access_tokens")) {
+        return jsonResponse({
+          ...tokenResponse,
+          permissions: {
+            checks: "write",
+          },
+        });
+      }
+
+      if (url.includes("/commits/")) {
+        return jsonResponse({
+          total_count: 1,
+          check_runs: [
+            {
+              id: 7_001,
+              name:
+                "CanaryGuard release review",
+              head_sha: headSha,
+              status: "in_progress",
+              conclusion: null,
+              external_id: externalId,
+            },
+          ],
+        });
+      }
+
+      assert.match(
+        url,
+        /\/check-runs\/7001$/u,
+      );
+      const body = JSON.parse(
+        String(init?.body),
+      ) as {
+        conclusion: string;
+        external_id: string;
+      };
+
+      return jsonResponse({
+        id: 7_001,
+        name:
+          "CanaryGuard release review",
+        head_sha: headSha,
+        status: "completed",
+        conclusion: body.conclusion,
+        external_id:
+          body.external_id,
+      });
+    },
+  );
+
+  const publication =
+    await new GitHubAppApiClient(
+      config,
+      {
+        fetchImplementation:
+          fakeFetch.implementation,
+      },
+    ).publishCheckRun({
+      repository: request.repository,
+      expectedInstallationId: 901,
+      workflowRunId: request.runId,
+      runAttempt: 1,
+      headSha,
+      review: {
+        reviewId:
+          "59b6f6d7-b052-4a40-8678-7621b8f44286",
+        repository:
+          request.repository,
+        headSha,
+        risk: {
+          score: 20,
+          level: "LOW",
+        },
+        summary:
+          "Continue at standard traffic.",
+        findings: [],
+        requiredActions: [],
+        policyOverrides: [],
+        analysis: {
+          provider: "MOCK",
+          modelTarget:
+            "mock-canaryguard-v1",
+          promptVersion:
+            "canaryguard-review-v3",
+        },
+        decision: "CONTINUE",
+        deployment: {
+          strategy: "STANDARD",
+          initialTrafficPercent: 100,
+        },
+      },
+    });
+
+  assert.deepEqual(publication, {
+    checkRunId: 7_001,
+  });
+  assert.deepEqual(methods, [
+    "GET",
+    "POST",
+    "GET",
+    "PATCH",
+  ]);
+});
+
 test("maps canary and standard release strategies to neutral and successful checks", async () => {
   const conclusions: string[] = [];
   let nextCheckRunId = 8_000;
@@ -1113,6 +1244,16 @@ test("maps canary and standard release strategies to neutral and successful chec
           permissions: {
             checks: "write",
           },
+        });
+      }
+
+      if (
+        url.includes("/commits/")
+        && url.includes("/check-runs?")
+      ) {
+        return jsonResponse({
+          total_count: 0,
+          check_runs: [],
         });
       }
 

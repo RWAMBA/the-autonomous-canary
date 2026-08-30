@@ -339,6 +339,47 @@ const checkRunResponseSchema = z
   })
   .passthrough();
 
+const checkRunListItemSchema = z
+  .object({
+    id: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    name: z.string().trim().min(1).max(255),
+    head_sha: gitShaSchema,
+    status: z.enum([
+      "queued",
+      "in_progress",
+      "completed",
+    ]),
+    conclusion: z
+      .string()
+      .trim()
+      .min(1)
+      .max(50)
+      .nullable(),
+    external_id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255),
+  })
+  .passthrough();
+
+const checkRunListSchema = z
+  .object({
+    total_count: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(maximumGitHubIdentifier),
+    check_runs: z
+      .array(checkRunListItemSchema)
+      .max(100),
+  })
+  .passthrough();
+
 export type GitHubCiCollectionRequest =
   z.infer<
     typeof collectionRequestSchema
@@ -554,7 +595,8 @@ GitHubCheckRunPublisher {
     path: string,
     authorization: string,
     init: {
-      readonly method: "GET" | "POST";
+      readonly method:
+        "GET" | "POST" | "PATCH";
       readonly body?: string;
       readonly accept?: string;
       readonly expectedStatus?: number;
@@ -636,7 +678,8 @@ GitHubCheckRunPublisher {
     path: string,
     authorization: string,
     init: {
-      readonly method: "GET" | "POST";
+      readonly method:
+        "GET" | "POST" | "PATCH";
       readonly body?: string;
       readonly expectedStatus?: number;
     },
@@ -1240,21 +1283,66 @@ GitHubCheckRunPublisher {
     const externalId =
       `canaryguard:${parsedRequest.workflowRunId}:${parsedRequest.runAttempt}`;
 
+    let existingCheckRunId:
+      number | undefined;
+
+    try {
+      const listInput =
+        await this.requestJson(
+          `/repos/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/commits/${encodePathPart(parsedRequest.headSha)}/check-runs?check_name=${encodeURIComponent("CanaryGuard release review")}&filter=latest&per_page=100`,
+          installationToken,
+          {
+            method: "GET",
+          },
+        );
+
+      const list =
+        checkRunListSchema.parse(
+          listInput,
+        );
+
+      existingCheckRunId =
+        list.check_runs.find(
+          (checkRun) =>
+            checkRun.external_id
+            === externalId,
+        )?.id;
+    } catch (error) {
+      throw createProviderError(error);
+    }
+
     let responseInput: unknown;
 
     try {
       responseInput =
         await this.requestJson(
-          `/repos/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/check-runs`,
+          existingCheckRunId === undefined
+            ? `/repos/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/check-runs`
+            : `/repos/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/check-runs/${encodePathPart(existingCheckRunId)}`,
           installationToken,
           {
-            method: "POST",
-            expectedStatus: 201,
+            method:
+              existingCheckRunId
+                === undefined
+                ? "POST"
+                : "PATCH",
+            expectedStatus:
+              existingCheckRunId
+                === undefined
+                ? 201
+                : 200,
             body: JSON.stringify({
               name:
                 "CanaryGuard release review",
-              head_sha:
-                parsedRequest.headSha,
+              ...(
+                existingCheckRunId
+                  === undefined
+                  ? {
+                      head_sha:
+                        parsedRequest.headSha,
+                    }
+                  : {}
+              ),
               details_url:
                 `https://github.com/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/actions/runs/${parsedRequest.workflowRunId}/attempts/${parsedRequest.runAttempt}`,
               external_id: externalId,
