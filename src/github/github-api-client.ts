@@ -12,8 +12,19 @@ import type {
 } from "../dto/ci-evidence.js";
 import {
   gitShaSchema,
+  maximumDiffLength,
+  reviewChangeSchema,
   reviewRepositorySchema,
 } from "../dto/review-request.js";
+import type {
+  ReviewChangeDto,
+} from "../dto/review-request.js";
+import type {
+  ReviewResponseDto,
+} from "../dto/review-response.js";
+import {
+  parseReviewResponse,
+} from "../dto/review-response.js";
 import {
   HttpError,
 } from "../middleware/http-error.js";
@@ -73,10 +84,13 @@ const installationTokenSchema = z
       ),
     expires_at: z.iso.datetime(),
     permissions: z
-      .object({
-        actions: z.literal("read"),
-      })
-      .passthrough(),
+      .record(
+        z.string(),
+        z.enum([
+          "read",
+          "write",
+        ]),
+      ),
   })
   .passthrough();
 
@@ -206,18 +220,167 @@ const collectionRequestSchema = z
       .positive()
       .max(maximumGitHubIdentifier),
     expectedHeadSha: gitShaSchema,
+    expectedRunAttempt: z
+      .number()
+      .int()
+      .positive()
+      .max(1_000)
+      .optional(),
+    expectedInstallationId: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier)
+      .optional(),
   })
   .strict();
+
+const pullRequestChangeRequestSchema = z
+  .object({
+    repository: reviewRepositorySchema,
+    pullRequestNumber: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    expectedHeadSha: gitShaSchema,
+    expectedInstallationId: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+  })
+  .strict();
+
+const checkRunPublicationRequestSchema = z
+  .object({
+    repository: reviewRepositorySchema,
+    expectedInstallationId: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    workflowRunId: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    runAttempt: z
+      .number()
+      .int()
+      .positive()
+      .max(1_000),
+    headSha: gitShaSchema,
+    review: z.unknown(),
+  })
+  .strict();
+
+const pullRequestSchema = z
+  .object({
+    number: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256),
+    body: z
+      .string()
+      .trim()
+      .max(4_000)
+      .nullable(),
+    base: z
+      .object({
+        sha: gitShaSchema,
+        repo: z
+          .object({
+            full_name: z
+              .string()
+              .trim()
+              .min(3)
+              .max(201),
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+    head: z
+      .object({
+        sha: gitShaSchema,
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+const checkRunResponseSchema = z
+  .object({
+    id: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    name: z.literal(
+      "CanaryGuard release review",
+    ),
+    head_sha: gitShaSchema,
+    status: z.literal("completed"),
+    conclusion: z.enum([
+      "success",
+      "neutral",
+      "failure",
+    ]),
+    external_id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(255),
+  })
+  .passthrough();
 
 export type GitHubCiCollectionRequest =
   z.infer<
     typeof collectionRequestSchema
   >;
 
+export type GitHubPullRequestChangeRequest =
+  z.infer<
+    typeof pullRequestChangeRequestSchema
+  >;
+
+export interface GitHubCheckRunPublicationRequest {
+  readonly repository: {
+    readonly owner: string;
+    readonly name: string;
+  };
+  readonly expectedInstallationId: number;
+  readonly workflowRunId: number;
+  readonly runAttempt: number;
+  readonly headSha: string;
+  readonly review: ReviewResponseDto;
+}
+
+export interface GitHubCheckRunPublication {
+  readonly checkRunId: number;
+}
+
 export interface GitHubCiEvidenceCollector {
   collect(
     request: GitHubCiCollectionRequest,
   ): Promise<CiEvidenceDto>;
+}
+
+export interface GitHubPullRequestChangeCollector {
+  collectPullRequestChange(
+    request: GitHubPullRequestChangeRequest,
+  ): Promise<ReviewChangeDto>;
+}
+
+export interface GitHubCheckRunPublisher {
+  publishCheckRun(
+    request: GitHubCheckRunPublicationRequest,
+  ): Promise<GitHubCheckRunPublication>;
 }
 
 export interface GitHubApiClientOptions {
@@ -265,6 +428,43 @@ function shaValuesMatch(
     === second.toLowerCase();
 }
 
+function mapCheckRunConclusion(
+  review: ReviewResponseDto,
+): "success" | "neutral" | "failure" {
+  if (review.decision === "BLOCK") {
+    return "failure";
+  }
+
+  return review.deployment.strategy
+    === "CANARY"
+    ? "neutral"
+    : "success";
+}
+
+function createCheckRunSummary(
+  review: ReviewResponseDto,
+): string {
+  const lines = [
+    "CanaryGuard completed a release review.",
+    "",
+    `- Review ID: ${review.reviewId}`,
+    `- Decision: ${review.decision}`,
+    `- Risk: ${review.risk.level} (${review.risk.score}/100)`,
+    `- Deployment: ${review.deployment.strategy} (${review.deployment.initialTrafficPercent}% initial traffic)`,
+    `- Policy overrides: ${review.policyOverrides.join(", ") || "none"}`,
+  ];
+
+  if (review.ciDiagnostic !== undefined) {
+    lines.push(
+      `- CI category: ${review.ciDiagnostic.failureCategory}`,
+      `- CI confidence: ${review.ciDiagnostic.confidence}`,
+      `- Retry: ${review.ciDiagnostic.retryRecommendation}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
 function createProviderError(
   cause: unknown,
 ): HttpError {
@@ -272,7 +472,7 @@ function createProviderError(
     statusCode: 502,
     code: "GITHUB_PROVIDER_UNAVAILABLE",
     message:
-      "GitHub evidence could not be collected.",
+      "The GitHub operation could not be completed.",
     expose: false,
     cause,
   });
@@ -280,6 +480,8 @@ function createProviderError(
 
 async function readBoundedResponseText(
   response: Response,
+  maximumBytes =
+    maximumGitHubApiResponseBytes,
 ): Promise<string> {
   if (response.body === null) {
     return "";
@@ -301,7 +503,7 @@ async function readBoundedResponseText(
 
       if (
         totalBytes
-        > maximumGitHubApiResponseBytes
+        > maximumBytes
       ) {
         await reader.cancel();
 
@@ -324,7 +526,10 @@ async function readBoundedResponseText(
 }
 
 export class GitHubAppApiClient
-implements GitHubCiEvidenceCollector {
+implements
+GitHubCiEvidenceCollector,
+GitHubPullRequestChangeCollector,
+GitHubCheckRunPublisher {
   private readonly config:
     GitHubAppConfig;
 
@@ -345,14 +550,17 @@ implements GitHubCiEvidenceCollector {
       ?? Date.now;
   }
 
-  private async requestJson(
+  private async requestText(
     path: string,
     authorization: string,
     init: {
       readonly method: "GET" | "POST";
       readonly body?: string;
+      readonly accept?: string;
+      readonly expectedStatus?: number;
+      readonly maximumBytes?: number;
     },
-  ): Promise<unknown> {
+  ): Promise<string> {
     const abortController =
       new AbortController();
 
@@ -372,7 +580,8 @@ implements GitHubCiEvidenceCollector {
               abortController.signal,
             headers: {
               accept:
-                "application/vnd.github+json",
+                init.accept
+                ?? "application/vnd.github+json",
               authorization:
                 `Bearer ${authorization}`,
               "user-agent":
@@ -404,15 +613,42 @@ implements GitHubCiEvidenceCollector {
         );
       }
 
-      const responseText =
-        await readBoundedResponseText(
-          response,
+      if (
+        init.expectedStatus !== undefined
+        && response.status
+          !== init.expectedStatus
+      ) {
+        throw new GitHubApiResponseError(
+          response.status,
         );
+      }
 
-      return JSON.parse(responseText);
+      return readBoundedResponseText(
+        response,
+        init.maximumBytes,
+      );
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async requestJson(
+    path: string,
+    authorization: string,
+    init: {
+      readonly method: "GET" | "POST";
+      readonly body?: string;
+      readonly expectedStatus?: number;
+    },
+  ): Promise<unknown> {
+    const responseText =
+      await this.requestText(
+        path,
+        authorization,
+        init,
+      );
+
+    return JSON.parse(responseText);
   }
 
   private async getInstallationId(
@@ -477,6 +713,17 @@ implements GitHubCiEvidenceCollector {
     installationId: number,
     repositoryName: string,
     appJwt: string,
+    permissions:
+      | {
+          readonly actions: "read";
+        }
+      | {
+          readonly pull_requests:
+            "read";
+        }
+      | {
+          readonly checks: "write";
+        },
   ): Promise<string> {
     try {
       const input = await this.requestJson(
@@ -489,15 +736,29 @@ implements GitHubCiEvidenceCollector {
               repositoryName,
             ],
             permissions: {
-              actions: "read",
+              ...permissions,
             },
           }),
         },
       );
 
-      return installationTokenSchema
-        .parse(input)
-        .token;
+      const token =
+        installationTokenSchema
+          .parse(input);
+
+      for (const [name, access]
+        of Object.entries(permissions)) {
+        if (
+          token.permissions[name]
+          !== access
+        ) {
+          throw new Error(
+            "GitHub installation token permissions do not match the requested boundary.",
+          );
+        }
+      }
+
+      return token.token;
     } catch (error) {
       throw createProviderError(error);
     }
@@ -578,11 +839,29 @@ implements GitHubCiEvidenceCollector {
         appJwt,
       );
 
+    if (
+      request.expectedInstallationId
+        !== undefined
+      && installationId
+        !== request.expectedInstallationId
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_INSTALLATION_ID_MISMATCH",
+        message:
+          "The GitHub App installation does not match the webhook delivery.",
+      });
+    }
+
     const installationToken =
       await this.createInstallationToken(
         installationId,
         request.repository.name,
         appJwt,
+        {
+          actions: "read",
+        },
       );
 
     const workflowRun =
@@ -610,6 +889,21 @@ implements GitHubCiEvidenceCollector {
           "GITHUB_WORKFLOW_RUN_NOT_COMPLETED",
         message:
           "The GitHub Actions workflow run has not completed.",
+      });
+    }
+
+    if (
+      request.expectedRunAttempt
+        !== undefined
+      && workflowRun.run_attempt
+        !== request.expectedRunAttempt
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_RUN_ATTEMPT_MISMATCH",
+        message:
+          "GitHub returned a different workflow run attempt.",
       });
     }
 
@@ -707,5 +1001,312 @@ implements GitHubCiEvidenceCollector {
     } catch (error) {
       throw createProviderError(error);
     }
+  }
+
+  async collectPullRequestChange(
+    input: GitHubPullRequestChangeRequest,
+  ): Promise<ReviewChangeDto> {
+    const request =
+      pullRequestChangeRequestSchema
+        .parse(input);
+
+    const appJwt = createGitHubAppJwt(
+      this.config,
+      this.clock,
+    );
+
+    const installationId =
+      await this.getInstallationId(
+        request.repository.owner,
+        request.repository.name,
+        appJwt,
+      );
+
+    if (
+      installationId
+      !== request.expectedInstallationId
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_INSTALLATION_ID_MISMATCH",
+        message:
+          "The GitHub App installation does not match the webhook delivery.",
+      });
+    }
+
+    const installationToken =
+      await this.createInstallationToken(
+        installationId,
+        request.repository.name,
+        appJwt,
+        {
+          pull_requests: "read",
+        },
+      );
+
+    const path =
+      `/repos/${encodePathPart(request.repository.owner)}/${encodePathPart(request.repository.name)}/pulls/${encodePathPart(request.pullRequestNumber)}`;
+
+    let pullRequestInput: unknown;
+    let diff: string;
+
+    try {
+      pullRequestInput =
+        await this.requestJson(
+          path,
+          installationToken,
+          {
+            method: "GET",
+          },
+        );
+
+      diff = await this.requestText(
+        path,
+        installationToken,
+        {
+          method: "GET",
+          accept:
+            "application/vnd.github.diff",
+          maximumBytes:
+            maximumDiffLength,
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof
+          GitHubApiResponseError
+        && error.statusCode === 404
+      ) {
+        throw new HttpError({
+          statusCode: 404,
+          code:
+            "GITHUB_PULL_REQUEST_NOT_FOUND",
+          message:
+            "The GitHub pull request was not found.",
+        });
+      }
+
+      throw createProviderError(error);
+    }
+
+    let pullRequest:
+      z.infer<typeof pullRequestSchema>;
+
+    try {
+      pullRequest =
+        pullRequestSchema.parse(
+          pullRequestInput,
+        );
+    } catch (error) {
+      throw createProviderError(error);
+    }
+
+    if (
+      pullRequest.number
+      !== request.pullRequestNumber
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_PULL_REQUEST_NUMBER_MISMATCH",
+        message:
+          "GitHub returned a different pull request.",
+      });
+    }
+
+    if (
+      !repositoriesMatch(
+        pullRequest.base.repo.full_name,
+        request.repository.owner,
+        request.repository.name,
+      )
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_PULL_REQUEST_REPOSITORY_MISMATCH",
+        message:
+          "The pull request does not belong to the delivered repository.",
+      });
+    }
+
+    if (
+      !shaValuesMatch(
+        pullRequest.head.sha,
+        request.expectedHeadSha,
+      )
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_PULL_REQUEST_HEAD_SHA_MISMATCH",
+        message:
+          "The pull request does not belong to the workflow head commit.",
+      });
+    }
+
+    try {
+      return reviewChangeSchema.parse({
+        title: pullRequest.title,
+        ...(
+          pullRequest.body === null
+            ? {}
+            : {
+                description:
+                  pullRequest.body,
+              }
+        ),
+        baseSha:
+          pullRequest.base.sha,
+        headSha:
+          pullRequest.head.sha,
+        diff,
+      });
+    } catch (error) {
+      throw createProviderError(error);
+    }
+  }
+
+  async publishCheckRun(
+    input: GitHubCheckRunPublicationRequest,
+  ): Promise<GitHubCheckRunPublication> {
+    const parsedRequest =
+      checkRunPublicationRequestSchema
+        .parse(input);
+
+    const review = parseReviewResponse(
+      parsedRequest.review,
+    );
+
+    if (
+      !shaValuesMatch(
+        review.headSha,
+        parsedRequest.headSha,
+      )
+      || !repositoriesMatch(
+        `${review.repository.owner}/${review.repository.name}`,
+        parsedRequest.repository.owner,
+        parsedRequest.repository.name,
+      )
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_CHECK_RUN_REVIEW_MISMATCH",
+        message:
+          "The review is not bound to the requested Check Run.",
+      });
+    }
+
+    const appJwt = createGitHubAppJwt(
+      this.config,
+      this.clock,
+    );
+
+    const installationId =
+      await this.getInstallationId(
+        parsedRequest.repository.owner,
+        parsedRequest.repository.name,
+        appJwt,
+      );
+
+    if (
+      installationId
+      !== parsedRequest.expectedInstallationId
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_INSTALLATION_ID_MISMATCH",
+        message:
+          "The GitHub App installation does not match the webhook delivery.",
+      });
+    }
+
+    const installationToken =
+      await this.createInstallationToken(
+        installationId,
+        parsedRequest.repository.name,
+        appJwt,
+        {
+          checks: "write",
+        },
+      );
+
+    const conclusion =
+      mapCheckRunConclusion(review);
+
+    const externalId =
+      `canaryguard:${parsedRequest.workflowRunId}:${parsedRequest.runAttempt}`;
+
+    let responseInput: unknown;
+
+    try {
+      responseInput =
+        await this.requestJson(
+          `/repos/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/check-runs`,
+          installationToken,
+          {
+            method: "POST",
+            expectedStatus: 201,
+            body: JSON.stringify({
+              name:
+                "CanaryGuard release review",
+              head_sha:
+                parsedRequest.headSha,
+              details_url:
+                `https://github.com/${encodePathPart(parsedRequest.repository.owner)}/${encodePathPart(parsedRequest.repository.name)}/actions/runs/${parsedRequest.workflowRunId}/attempts/${parsedRequest.runAttempt}`,
+              external_id: externalId,
+              status: "completed",
+              conclusion,
+              output: {
+                title:
+                  `CanaryGuard: ${review.decision}`,
+                summary:
+                  createCheckRunSummary(
+                    review,
+                  ),
+              },
+            }),
+          },
+        );
+    } catch (error) {
+      throw createProviderError(error);
+    }
+
+    let response:
+      z.infer<typeof checkRunResponseSchema>;
+
+    try {
+      response =
+        checkRunResponseSchema.parse(
+          responseInput,
+        );
+    } catch (error) {
+      throw createProviderError(error);
+    }
+
+    if (
+      !shaValuesMatch(
+        response.head_sha,
+        parsedRequest.headSha,
+      )
+      || response.conclusion !== conclusion
+      || response.external_id
+        !== externalId
+    ) {
+      throw new HttpError({
+        statusCode: 409,
+        code:
+          "GITHUB_CHECK_RUN_RESPONSE_MISMATCH",
+        message:
+          "GitHub returned a Check Run with mismatched bindings.",
+      });
+    }
+
+    return Object.freeze({
+      checkRunId: response.id,
+    });
   }
 }

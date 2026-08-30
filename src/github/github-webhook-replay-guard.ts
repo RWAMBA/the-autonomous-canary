@@ -10,6 +10,9 @@ export interface GitHubWebhookReplayGuard {
   reserve(
     deliveryId: string,
   ): GitHubDeliveryReservation;
+  release(
+    deliveryId: string,
+  ): void;
 }
 
 export interface InMemoryGitHubWebhookReplayGuardOptions {
@@ -118,5 +121,11 @@ implements GitHubWebhookReplayGuard {
     );
 
     return "ACCEPTED";
+  }
+
+  release(
+    deliveryId: string,
+  ): void {
+    this.deliveries.delete(deliveryId);
   }
 }

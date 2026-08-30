@@ -21,6 +21,7 @@ env:
   CANARYGUARD_INTELLIGENCE_PROVIDER: MOCK
   CANARYGUARD_GITHUB_PROVIDER: DISABLED
   CANARYGUARD_GITHUB_WEBHOOK_PROVIDER: DISABLED
+  CANARYGUARD_GITHUB_AUTOMATION_PROVIDER: DISABLED
 
 jobs:
   quality:
@@ -66,6 +67,11 @@ jobs:
 
           if [[ -n "${GITHUB_WEBHOOK_SECRET:-}" ]]; then
             echo "GITHUB_WEBHOOK_SECRET must not be available to public CI." >&2
+            exit 1
+          fi
+
+          if [[ "${CANARYGUARD_GITHUB_AUTOMATION_PROVIDER}" != "DISABLED" ]]; then
+            echo "Public CI must disable GitHub Check Run automation." >&2
             exit 1
           fi
 

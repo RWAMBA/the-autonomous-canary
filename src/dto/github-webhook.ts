@@ -82,6 +82,21 @@ const githubWorkflowRunSchema = z
       .optional(),
     repository:
       githubRepositorySchema,
+    pull_requests: z
+      .array(
+        z
+          .object({
+            number: z
+              .number()
+              .int()
+              .positive()
+              .max(
+                maximumGitHubIdentifier,
+              ),
+          }),
+      )
+      .max(20)
+      .default([]),
   });
 
 export const githubWorkflowRunWebhookSchema =
@@ -163,8 +178,7 @@ const receiptWorkflowRunSchema = z
   })
   .strict();
 
-export const githubWebhookReceiptSchema =
-  z
+const workflowRunReceiptSchema = z
     .object({
       deliveryId: z
         .string()
@@ -177,9 +191,10 @@ export const githubWebhookReceiptSchema =
         "IGNORED",
       ]),
       reason: z
-        .literal(
+        .enum([
           "WORKFLOW_RUN_NOT_COMPLETED",
-        )
+          "WORKFLOW_RUN_PULL_REQUEST_UNAVAILABLE",
+        ])
         .optional(),
       repository:
         receiptRepositorySchema,
@@ -196,8 +211,7 @@ export const githubWebhookReceiptSchema =
 
       const validIgnoredReceipt =
         value.status === "IGNORED"
-        && value.reason
-          === "WORKFLOW_RUN_NOT_COMPLETED";
+        && value.reason !== undefined;
 
       if (
         !validAcceptedReceipt
@@ -214,9 +228,49 @@ export const githubWebhookReceiptSchema =
       }
     });
 
+export const githubCheckRunActionSchema =
+  z.enum([
+    "created",
+    "completed",
+  ]);
+
+export const githubCheckRunWebhookSchema =
+  z
+    .object({
+      action: githubCheckRunActionSchema,
+      repository:
+        githubRepositorySchema,
+    });
+
+const checkRunReceiptSchema = z
+  .object({
+    deliveryId: z
+      .string()
+      .regex(githubDeliveryIdPattern),
+    event: z.literal("check_run"),
+    status: z.literal("IGNORED"),
+    reason: z.literal(
+      "CHECK_RUN_EVENT_IGNORED",
+    ),
+    repository:
+      receiptRepositorySchema,
+  })
+  .strict();
+
+export const githubWebhookReceiptSchema =
+  z.discriminatedUnion("event", [
+    workflowRunReceiptSchema,
+    checkRunReceiptSchema,
+  ]);
+
 export type GitHubWorkflowRunWebhookDto =
   z.infer<
     typeof githubWorkflowRunWebhookSchema
+  >;
+
+export type GitHubCheckRunWebhookDto =
+  z.infer<
+    typeof githubCheckRunWebhookSchema
   >;
 
 export type GitHubWebhookReceiptDto =
@@ -228,6 +282,13 @@ export function parseGitHubWorkflowRunWebhook(
   input: unknown,
 ): GitHubWorkflowRunWebhookDto {
   return githubWorkflowRunWebhookSchema
+    .parse(input);
+}
+
+export function parseGitHubCheckRunWebhook(
+  input: unknown,
+): GitHubCheckRunWebhookDto {
+  return githubCheckRunWebhookSchema
     .parse(input);
 }
 

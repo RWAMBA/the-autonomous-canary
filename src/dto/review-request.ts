@@ -121,6 +121,14 @@ export type ReviewRequestDto = z.infer<
   typeof reviewRequestSchema
 >;
 
+export type ReviewChangeDto = z.infer<
+  typeof reviewChangeSchema
+>;
+
+export type TestStatus = z.infer<
+  typeof testStatusSchema
+>;
+
 export function parseReviewRequest(
   input: unknown,
 ): ReviewRequestDto {

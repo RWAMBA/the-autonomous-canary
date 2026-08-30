@@ -76,6 +76,9 @@ function createPayload() {
           login: "RWAMBA",
         },
       },
+      pull_requests: [] as Array<{
+        number: number;
+      }>,
     },
     sender: {
       login: "octocat",
@@ -503,7 +506,8 @@ test("returns a hidden server error when replay protection is at capacity", () =
     GitHubWebhookReplayGuard = {
       reserve: () =>
         "CAPACITY_EXCEEDED",
-  };
+      release: () => {},
+    };
 
   assert.throws(
     () => createReceiver({
@@ -522,5 +526,176 @@ test("returns a hidden server error when replay protection is at capacity", () =
 
       return true;
     },
+  );
+});
+
+test("dispatches one completed pull-request workflow after signature and binding validation", () => {
+  const tasks: unknown[] = [];
+  const payload = createPayload();
+
+  payload.workflow_run.pull_requests = [
+    {
+      number: 14,
+    },
+  ];
+
+  const receipt = createReceiver({
+    workflowRunTaskDispatcher: {
+      dispatch: (task) => {
+        tasks.push(task);
+      },
+    },
+  }).receive(createDelivery(payload));
+
+  assert.equal(receipt.status, "ACCEPTED");
+  assert.deepEqual(tasks, [
+    {
+      deliveryId: defaultDeliveryId,
+      installationId: 15_758_562,
+      repository: {
+        owner: "RWAMBA",
+        name:
+          "the-autonomous-canary",
+      },
+      workflowRun: {
+        id: 33_273_782_416,
+        runAttempt: 1,
+        headSha:
+          "1ca9fd52769fe3d4e60e02e02d8fe73f1e91f45a",
+        conclusion: "success",
+      },
+      pullRequest: {
+        number: 14,
+      },
+    },
+  ]);
+});
+
+test("does not automate a completed workflow without exactly one pull request", () => {
+  let dispatchCalls = 0;
+
+  const receipt = createReceiver({
+    workflowRunTaskDispatcher: {
+      dispatch: () => {
+        dispatchCalls += 1;
+      },
+    },
+  }).receive(
+    createDelivery(createPayload()),
+  );
+
+  assert.deepEqual(receipt, {
+    deliveryId: defaultDeliveryId,
+    event: "workflow_run",
+    status: "IGNORED",
+    reason:
+      "WORKFLOW_RUN_PULL_REQUEST_UNAVAILABLE",
+    repository: {
+      owner: "RWAMBA",
+      name:
+        "the-autonomous-canary",
+    },
+    workflowRun: {
+      id: 33_273_782_416,
+      runAttempt: 1,
+      headSha:
+        "1ca9fd52769fe3d4e60e02e02d8fe73f1e91f45a",
+      conclusion: "success",
+    },
+  });
+  assert.equal(dispatchCalls, 0);
+});
+
+test("releases replay reservation when bounded task dispatch rejects the delivery", () => {
+  const released: string[] = [];
+  const replayGuard:
+    GitHubWebhookReplayGuard = {
+      reserve: () => "ACCEPTED",
+      release: (deliveryId) => {
+        released.push(deliveryId);
+      },
+    };
+  const payload = createPayload();
+
+  payload.workflow_run.pull_requests = [
+    {
+      number: 14,
+    },
+  ];
+
+  assert.throws(
+    () => createReceiver({
+      replayGuard,
+      workflowRunTaskDispatcher: {
+        dispatch: () => {
+          throw new HttpError({
+            statusCode: 503,
+            code:
+              "GITHUB_AUTOMATION_QUEUE_CAPACITY_EXCEEDED",
+            message:
+              "The queue is full.",
+            expose: false,
+          });
+        },
+      },
+    }).receive(createDelivery(payload)),
+    (error: unknown) =>
+      assertExpectedHttpError(
+        error,
+        503,
+        "GITHUB_AUTOMATION_QUEUE_CAPACITY_EXCEEDED",
+      ),
+  );
+
+  assert.deepEqual(released, [
+    defaultDeliveryId,
+  ]);
+});
+
+test("acknowledges generated check_run traffic without creating an automation loop", () => {
+  const receipt = createReceiver()
+    .receive(createDelivery(
+      {
+        action: "completed",
+        repository: {
+          id: 101,
+          full_name:
+            "RWAMBA/the-autonomous-canary",
+          name:
+            "the-autonomous-canary",
+          owner: {
+            login: "RWAMBA",
+          },
+        },
+        check_run: {
+          id: 7_001,
+          output: {
+            text:
+              "untrusted ignored data",
+          },
+        },
+      },
+      {
+        event: "check_run",
+      },
+    ));
+
+  assert.deepEqual(receipt, {
+    deliveryId: defaultDeliveryId,
+    event: "check_run",
+    status: "IGNORED",
+    reason:
+      "CHECK_RUN_EVENT_IGNORED",
+    repository: {
+      owner: "RWAMBA",
+      name:
+        "the-autonomous-canary",
+    },
+  });
+  assert.equal(
+    JSON.stringify(receipt).includes(
+      "untrusted ignored data",
+    ),
+    false,
   );
 });

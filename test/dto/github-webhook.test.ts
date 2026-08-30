@@ -4,6 +4,7 @@ import {
 } from "node:test";
 
 import {
+  parseGitHubCheckRunWebhook,
   parseGitHubWebhookReceipt,
   parseGitHubWorkflowRunWebhook,
 } from "../../src/dto/github-webhook.js";
@@ -50,6 +51,13 @@ function createPayload() {
           login: "RWAMBA",
         },
       },
+      pull_requests: [
+        {
+          number: 14,
+          url:
+            "https://api.github.test/pulls/14",
+        },
+      ],
       jobs_url:
         "https://api.github.test/jobs",
     },
@@ -76,6 +84,14 @@ test("accepts and normalizes a bounded completed workflow_run payload", () => {
   assert.equal(
     "jobs_url" in payload.workflow_run,
     false,
+  );
+  assert.deepEqual(
+    payload.workflow_run.pull_requests,
+    [
+      {
+        number: 14,
+      },
+    ],
   );
 });
 
@@ -174,5 +190,71 @@ test("accepts internally consistent webhook receipts", () => {
       ...accepted,
       status: "IGNORED",
     }),
+  );
+});
+
+test("normalizes bounded check_run loop-prevention deliveries", () => {
+  const payload = parseGitHubCheckRunWebhook({
+    action: "completed",
+    repository: {
+      id: 101,
+      full_name:
+        "RWAMBA/the-autonomous-canary",
+      name:
+        "the-autonomous-canary",
+      owner: {
+        login: "RWAMBA",
+      },
+    },
+    check_run: {
+      id: 7_001,
+      output: {
+        text:
+          "untrusted content",
+      },
+    },
+  });
+
+  assert.deepEqual(payload, {
+    action: "completed",
+    repository: {
+      id: 101,
+      full_name:
+        "RWAMBA/the-autonomous-canary",
+      name:
+        "the-autonomous-canary",
+      owner: {
+        login: "RWAMBA",
+      },
+    },
+  });
+
+  assert.deepEqual(
+    parseGitHubWebhookReceipt({
+      deliveryId:
+        "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+      event: "check_run",
+      status: "IGNORED",
+      reason:
+        "CHECK_RUN_EVENT_IGNORED",
+      repository: {
+        owner: "RWAMBA",
+        name:
+          "the-autonomous-canary",
+      },
+    }),
+    {
+      deliveryId:
+        "72d3162e-cc78-11e3-81ab-4c9367dc0958",
+      event: "check_run",
+      status: "IGNORED",
+      reason:
+        "CHECK_RUN_EVENT_IGNORED",
+      repository: {
+        owner: "RWAMBA",
+        name:
+          "the-autonomous-canary",
+      },
+    },
   );
 });
