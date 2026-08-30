@@ -1,4 +1,8 @@
 import {
+  performance,
+} from "node:perf_hooks";
+
+import {
   evaluateCanary,
   type CanaryEvaluation,
   type CanaryPolicy,
@@ -26,11 +30,13 @@ export interface ObserveCanaryOptions {
   readonly policy: CanaryPolicy;
   readonly maximumTotalRequests: number;
   readonly requestWorkload: () => Promise<WorkloadResponse>;
+  readonly now?: () => number;
 }
 
 interface MutableTrafficSample {
   requests: number;
   failures: number;
+  maximumLatencyMs: number | null;
 }
 
 function readReleaseChannel(
@@ -89,14 +95,18 @@ export async function observeCanary(
     stable: {
       requests: 0,
       failures: 0,
+      maximumLatencyMs: null,
     },
     canary: {
       requests: 0,
       failures: 0,
+      maximumLatencyMs: null,
     },
   };
 
   let totalRequests = 0;
+  const now = options.now
+    ?? (() => performance.now());
 
   while (
     (
@@ -107,10 +117,31 @@ export async function observeCanary(
     )
     && totalRequests < options.maximumTotalRequests
   ) {
+    const startedAt = now();
     const response = await options.requestWorkload();
+    const completedAt = now();
+
+    if (
+      !Number.isFinite(startedAt)
+      || !Number.isFinite(completedAt)
+      || completedAt < startedAt
+    ) {
+      throw new Error(
+        "Canary observation clock must return increasing finite values.",
+      );
+    }
+
+    const latencyMs =
+      completedAt - startedAt;
     const channel = readReleaseChannel(response.payload);
 
     observations[channel].requests += 1;
+    observations[channel].maximumLatencyMs =
+      Math.max(
+        observations[channel]
+          .maximumLatencyMs ?? 0,
+        latencyMs,
+      );
     totalRequests += 1;
 
     if (!response.ok) {

@@ -10,7 +10,17 @@ import type {
   CanaryPolicy,
 } from "../src/canary-policy.js";
 import {
-  routingModeForDecision,
+  runCanaryRollout,
+} from "../src/deployment/canary-rollout.js";
+import {
+  createDeploymentLifecyclePublisher,
+} from "../src/deployment/deployment-lifecycle-publisher.js";
+import {
+  loadDeploymentEventPublisherConfig,
+} from "../src/deployment/deployment-event-publisher-config.js";
+import {
+  readCanaryTrafficPercent,
+  type CanaryTrafficPercent,
   type RoutingMode,
 } from "../src/routing-mode.js";
 
@@ -101,6 +111,8 @@ function startBackends(): void {
 
 function applyRouting(
   routingMode: RoutingMode,
+  canaryTrafficPercent:
+    CanaryTrafficPercent,
 ): void {
   execFileSync(
     "npm",
@@ -112,6 +124,8 @@ function applyRouting(
       env: {
         ...process.env,
         ROUTING_MODE: routingMode,
+        CANARY_INITIAL_TRAFFIC_PERCENT:
+          String(canaryTrafficPercent),
       },
       stdio: "inherit",
     },
@@ -144,6 +158,12 @@ const policy: CanaryPolicy = {
     process.env.MAXIMUM_FAILURE_RATE_INCREASE,
     0.02,
   ),
+  maximumCanaryLatencyMs:
+    readPositiveInteger(
+      "MAXIMUM_CANARY_LATENCY_MS",
+      process.env.MAXIMUM_CANARY_LATENCY_MS,
+      1_000,
+    ),
 };
 
 const maximumTotalRequests = readPositiveInteger(
@@ -156,74 +176,76 @@ const expectedDecision = readExpectedDecision(
   process.env.EXPECTED_DECISION,
 );
 
-startBackends();
-applyRouting("canary");
+const initialTrafficPercent =
+  readCanaryTrafficPercent(
+    process.env.CANARY_INITIAL_TRAFFIC_PERCENT,
+  );
 
-const observation = await (async () => {
-  try {
-    return await observeCanary({
-      policy,
-      maximumTotalRequests,
-      requestWorkload: async () => {
-        const response = await fetch(
-          new URL("/work", gatewayUrl),
-        );
+const deploymentEventPublisher =
+  createDeploymentLifecyclePublisher(
+    loadDeploymentEventPublisherConfig(),
+  );
 
-        return {
-          ok: response.ok,
-          payload: await response.json(),
-        };
-      },
-    });
-  } catch (error) {
-    console.error(
-      "Canary observation failed. Applying rollback.",
-    );
-    applyRouting("rollback");
-    throw error;
-  }
-})();
+const rollout = await runCanaryRollout({
+  initialTrafficPercent,
+  startBackends,
+  applyRouting,
+  ...(deploymentEventPublisher === undefined
+    ? {}
+    : {
+        publisher:
+          deploymentEventPublisher,
+      }),
+  observe: async () => observeCanary({
+    policy,
+    maximumTotalRequests,
+    requestWorkload: async () => {
+      const response = await fetch(
+        new URL("/work", gatewayUrl),
+      );
 
-const routingMode = routingModeForDecision(
-  observation.evaluation.decision,
-);
+      return {
+        ok: response.ok,
+        payload: await response.json(),
+      };
+    },
+  }),
+});
 
 console.log(JSON.stringify({
   gatewayUrl: gatewayUrl.toString(),
-  totalRequests: observation.totalRequests,
-  observations: observation.observations,
+  initialTrafficPercent,
+  totalRequests:
+    rollout.observation.totalRequests,
+  observations:
+    rollout.observation.observations,
   policy,
-  evaluation: observation.evaluation,
-  routingMode,
+  evaluation:
+    rollout.observation.evaluation,
+  routingMode: rollout.routingMode,
+  outcome: rollout.outcome,
+  deploymentEventPublication:
+    deploymentEventPublisher === undefined
+      ? "DISABLED"
+      : "HTTP",
 }, null, 2));
-
-try {
-  applyRouting(routingMode);
-} catch (error) {
-  if (routingMode !== "rollback") {
-    console.error(
-      "Routing action failed. Applying rollback.",
-    );
-    applyRouting("rollback");
-  }
-
-  throw error;
-}
 
 if (
   expectedDecision !== undefined
-  && observation.evaluation.decision
+  && rollout.observation.evaluation.decision
     !== expectedDecision
 ) {
   throw new Error(
     `Expected ${expectedDecision}, received ${
-      observation.evaluation.decision
+      rollout.observation.evaluation.decision
     }.`,
   );
 }
 
 console.log(
   `Autonomous rollout completed with decision ${
-    observation.evaluation.decision
-  } and routing mode ${routingMode}.`,
+    rollout.observation.evaluation.decision
+  }, routing mode ${rollout.routingMode}, and outcome ${
+    rollout.outcome
+  }.`,
 );

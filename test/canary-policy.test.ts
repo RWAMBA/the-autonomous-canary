@@ -11,6 +11,7 @@ const policy: CanaryPolicy = {
   minimumCanaryRequests: 20,
   maximumCanaryFailureRate: 0.05,
   maximumFailureRateIncrease: 0.05,
+  maximumCanaryLatencyMs: 500,
 };
 
 test("continues when the sample size is insufficient", () => {
@@ -18,10 +19,12 @@ test("continues when the sample size is insufficient", () => {
     {
       requests: 100,
       failures: 1,
+      maximumLatencyMs: 120,
     },
     {
       requests: 10,
       failures: 0,
+      maximumLatencyMs: 180,
     },
     policy,
   );
@@ -34,6 +37,14 @@ test("continues when the sample size is insufficient", () => {
   assert.equal(evaluation.stableFailureRate, 0.01);
   assert.equal(evaluation.canaryFailureRate, 0);
   assert.equal(evaluation.failureRateIncrease, -0.01);
+  assert.equal(
+    evaluation.errorRateThresholdPassed,
+    true,
+  );
+  assert.equal(
+    evaluation.latencyThresholdPassed,
+    true,
+  );
   assert.equal(Object.isFrozen(evaluation), true);
 });
 
@@ -42,10 +53,12 @@ test("rolls back when the absolute failure limit is exceeded", () => {
     {
       requests: 100,
       failures: 1,
+      maximumLatencyMs: 120,
     },
     {
       requests: 20,
       failures: 2,
+      maximumLatencyMs: 180,
     },
     policy,
   );
@@ -56,6 +69,10 @@ test("rolls back when the absolute failure limit is exceeded", () => {
     "maximum-canary-failure-rate-exceeded",
   );
   assert.equal(evaluation.canaryFailureRate, 0.1);
+  assert.equal(
+    evaluation.errorRateThresholdPassed,
+    false,
+  );
 });
 
 test("rolls back when canary is worse than stable", () => {
@@ -63,10 +80,12 @@ test("rolls back when canary is worse than stable", () => {
     {
       requests: 100,
       failures: 0,
+      maximumLatencyMs: 120,
     },
     {
       requests: 20,
       failures: 1,
+      maximumLatencyMs: 180,
     },
     {
       ...policy,
@@ -88,10 +107,12 @@ test("promotes when all policy limits pass", () => {
     {
       requests: 100,
       failures: 1,
+      maximumLatencyMs: 120,
     },
     {
       requests: 20,
       failures: 1,
+      maximumLatencyMs: 180,
     },
     policy,
   );
@@ -100,6 +121,44 @@ test("promotes when all policy limits pass", () => {
   assert.equal(evaluation.reason, "policy-passed");
   assert.equal(evaluation.stableFailureRate, 0.01);
   assert.equal(evaluation.canaryFailureRate, 0.05);
+  assert.equal(
+    evaluation.canaryMaximumLatencyMs,
+    180,
+  );
+  assert.equal(
+    evaluation.latencyThresholdPassed,
+    true,
+  );
+});
+
+test("rolls back when canary latency exceeds policy", () => {
+  const evaluation = evaluateCanary(
+    {
+      requests: 100,
+      failures: 0,
+      maximumLatencyMs: 100,
+    },
+    {
+      requests: 20,
+      failures: 0,
+      maximumLatencyMs: 501,
+    },
+    policy,
+  );
+
+  assert.equal(evaluation.decision, "rollback");
+  assert.equal(
+    evaluation.reason,
+    "maximum-canary-latency-exceeded",
+  );
+  assert.equal(
+    evaluation.errorRateThresholdPassed,
+    true,
+  );
+  assert.equal(
+    evaluation.latencyThresholdPassed,
+    false,
+  );
 });
 
 test("rejects an impossible traffic sample", () => {
@@ -108,16 +167,60 @@ test("rejects an impossible traffic sample", () => {
       {
         requests: 2,
         failures: 3,
+        maximumLatencyMs: 100,
       },
       {
         requests: 20,
         failures: 0,
+        maximumLatencyMs: 100,
       },
       policy,
     ),
     {
       message:
         "stable.failures cannot exceed stable.requests.",
+    },
+  );
+});
+
+test("requires latency evidence to match the observed sample", () => {
+  assert.throws(
+    () => evaluateCanary(
+      {
+        requests: 0,
+        failures: 0,
+        maximumLatencyMs: 10,
+      },
+      {
+        requests: 20,
+        failures: 0,
+        maximumLatencyMs: 100,
+      },
+      policy,
+    ),
+    {
+      message:
+        "stable.maximumLatencyMs must be null when no requests were observed.",
+    },
+  );
+
+  assert.throws(
+    () => evaluateCanary(
+      {
+        requests: 100,
+        failures: 0,
+        maximumLatencyMs: null,
+      },
+      {
+        requests: 20,
+        failures: 0,
+        maximumLatencyMs: 100,
+      },
+      policy,
+    ),
+    {
+      message:
+        "stable.maximumLatencyMs is required when requests were observed.",
     },
   );
 });

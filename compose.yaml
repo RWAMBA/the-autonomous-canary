@@ -93,7 +93,7 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ./infra/nginx/routes/${ROUTING_MODE:-canary}.conf
+        source: ./infra/nginx/routes/${ROUTING_CONFIG:-canary-10}.conf
         target: /etc/nginx/upstream.conf
         read_only: true
         bind:

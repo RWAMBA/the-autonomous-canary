@@ -23,6 +23,7 @@ env:
   CANARYGUARD_GITHUB_WEBHOOK_PROVIDER: DISABLED
   CANARYGUARD_GITHUB_AUTOMATION_PROVIDER: DISABLED
   CANARYGUARD_PERSISTENCE_PROVIDER: DISABLED
+  CANARYGUARD_DEPLOYMENT_EVENT_PUBLISHER: DISABLED
 
 jobs:
   quality:
@@ -83,6 +84,16 @@ jobs:
 
           if [[ -n "${DATABASE_URL:-}" ]]; then
             echo "DATABASE_URL must not be available to public CI." >&2
+            exit 1
+          fi
+
+          if [[ "${CANARYGUARD_DEPLOYMENT_EVENT_PUBLISHER}" != "DISABLED" ]]; then
+            echo "Public CI must disable deployment-event publication." >&2
+            exit 1
+          fi
+
+          if [[ -n "${CANARYGUARD_DEPLOYMENT_EVENT_URL:-}" || -n "${CANARYGUARD_DEPLOYMENT_RELEASE_ID:-}" || -n "${CANARYGUARD_DEPLOYMENT_ATTEMPT_ID:-}" ]]; then
+            echo "Deployment-event correlation must not reach public CI." >&2
             exit 1
           fi
 

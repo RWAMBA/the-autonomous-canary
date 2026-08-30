@@ -96,6 +96,12 @@ const policy: CanaryPolicy = {
     process.env.MAXIMUM_FAILURE_RATE_INCREASE,
     0.02,
   ),
+  maximumCanaryLatencyMs:
+    readPositiveInteger(
+      "MAXIMUM_CANARY_LATENCY_MS",
+      process.env.MAXIMUM_CANARY_LATENCY_MS,
+      1_000,
+    ),
 };
 
 const maximumTotalRequests = readPositiveInteger(

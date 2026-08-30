@@ -33,6 +33,8 @@ The MVP:
 - records structured intelligence telemetry
 - records normalized predictions, deterministic findings, model accounting, final policy decisions, and audit events without storing raw diffs, CI logs, prompts, credentials, or model output
 - accepts idempotent deployment starts, bounded canary observations, and continuation, promotion, rollback, blocked, or failed outcomes
+- optionally publishes the autonomous rollout's start, measured observation, and final outcome under one explicit release and deployment-attempt identity
+- measures canary request latency and applies exact policy-aligned 5% or 10% weighted routing
 - compares persisted risk predictions with actual outcomes without changing hard-coded policy
 - supports authenticated local, Docker, CI, and Render execution
 
@@ -522,6 +524,55 @@ Each event is transactionally correlated to the release and, when applicable, th
 
 Prediction direction is measured deterministically. `HIGH`, `CRITICAL`, or `BLOCKED` predictions are adverse; `BLOCKED`, `ROLLED_BACK`, and `FAILED` results are adverse. Equality between the predicted and actual direction produces `directionallyCorrect: true`. The measurement is stored and returned, but it never executes deployment commands, overrides policy, or creates a policy change.
 
+### Publish autonomous rollout events
+
+`npm run rollout:canary` can publish its own lifecycle events to the authenticated deployment-event API. Publication is independently disabled by default, including in public CI.
+
+| Environment variable | Requirement | Default |
+|---|---|---|
+| `CANARYGUARD_DEPLOYMENT_EVENT_PUBLISHER` | `DISABLED` or `HTTP` | `DISABLED` |
+| `CANARYGUARD_DEPLOYMENT_EVENT_URL` | Exact HTTPS `/deployment-events` URL; loopback HTTP is allowed for local validation | None |
+| `CANARYGUARD_DEPLOYMENT_RELEASE_ID` | UUID of the persisted release selected for deployment | None |
+| `CANARYGUARD_DEPLOYMENT_ATTEMPT_ID` | New UUID for this deployment attempt | None |
+| `CANARYGUARD_DEPLOYMENT_PROVIDER` | Uppercase provider code containing 1 to 100 characters | None |
+| `CANARYGUARD_EXTERNAL_DEPLOYMENT_ID` | Optional provider deployment identifier containing 1 to 300 characters | None |
+| `CANARYGUARD_DEPLOYMENT_EVENT_TIMEOUT_MS` | Integer from 1,000 to 60,000 | `10000` |
+| `CANARYGUARD_DEPLOYMENT_EVENT_MAX_RETRIES` | Integer from 0 to 3 | `2` |
+| `CANARY_INITIAL_TRAFFIC_PERCENT` | Policy-supported canary percentage: `5` or `10` | `10` |
+| `MAXIMUM_CANARY_LATENCY_MS` | Positive integer latency threshold | `1000` |
+
+HTTP publication reuses `CANARYGUARD_API_KEY` from the protected runtime environment. The key is sent only in the bearer header and is never included in rollout output or publisher errors. Each bounded HTTP retry reuses the same generated event UUID and normalized body, so an accepted response lost in transit is recovered through the API's durable replay contract.
+
+The rollout sequence is deterministic:
+
+1. start both release backends
+2. force the gateway to stable-only routing
+3. publish `DEPLOYMENT_STARTED` before applying canary routing
+4. apply the exact 5% or 10% Nginx weight selected by recorded policy
+5. measure request outcomes and maximum observed latency
+6. publish `CANARY_OBSERVED` with the error-rate and latency threshold results
+7. apply `continue`, `promote`, or `rollback` routing
+8. publish `CONTINUED`, `PROMOTED`, or `ROLLED_BACK`
+
+If stable-only preparation or start publication fails, canary routing is not applied. If observation, routing, or outcome publication fails after the attempt starts, the orchestrator attempts deterministic rollback and records `FAILED`. Recovery failures are surfaced together; no model-generated command or policy mutation is executed.
+
+Enable publication only after the release review has been durably recorded and the selected release ID, policy traffic percentage, and newly generated attempt ID are known:
+
+```bash
+set +x
+
+export CANARYGUARD_DEPLOYMENT_EVENT_PUBLISHER=HTTP
+export CANARYGUARD_DEPLOYMENT_EVENT_URL='https://canaryguard.example/deployment-events'
+export CANARYGUARD_DEPLOYMENT_RELEASE_ID='123e4567-e89b-42d3-a456-426614174000'
+export CANARYGUARD_DEPLOYMENT_ATTEMPT_ID='223e4567-e89b-42d3-a456-426614174000'
+export CANARYGUARD_DEPLOYMENT_PROVIDER=DOCKER_COMPOSE
+export CANARY_INITIAL_TRAFFIC_PERCENT=5
+
+npm run rollout:canary
+```
+
+The supplied traffic percentage must exactly match the persisted policy decision. Clear the correlation values after the rollout and never place production identifiers or the shared API key in source files.
+
 ## Final deployment policy
 
 | Final condition | Decision | Strategy | Initial traffic |
@@ -941,6 +992,8 @@ Automatic Check Run publication independently remains `DISABLED` unless `CANARYG
 
 PostgreSQL persistence remains `DISABLED` unless `CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES`. Compose forwards a protected `DATABASE_URL` and the bounded database and worker controls but does not embed or provision a database. Apply the migration through a protected administrative environment before starting the stack.
 
+The rollout publisher remains `DISABLED` unless `CANARYGUARD_DEPLOYMENT_EVENT_PUBLISHER=HTTP`. Direct `docker compose up` uses the 10% canary route by default. `npm run rollout:canary` and `npm run routing:apply` select the exact 5% or 10% route through `CANARY_INITIAL_TRAFFIC_PERCENT`.
+
 ## Validation
 
 Run the complete local validation suite:
@@ -965,13 +1018,16 @@ The public continuous-integration job:
 - forces `CANARYGUARD_GITHUB_WEBHOOK_PROVIDER=DISABLED`
 - forces `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=DISABLED`
 - forces `CANARYGUARD_PERSISTENCE_PROVIDER=DISABLED`
+- forces `CANARYGUARD_DEPLOYMENT_EVENT_PUBLISHER=DISABLED`
 - removes `OPENAI_API_KEY` from the job environment
 - fails if GitHub App credential variables unexpectedly reach public CI
 - fails if `GITHUB_WEBHOOK_SECRET` unexpectedly reaches public CI
 - fails if `DATABASE_URL` unexpectedly reaches public CI
+- fails if deployment-event URLs or correlation identifiers unexpectedly reach public CI
 - fails if an OpenAI key unexpectedly reaches the public validation job
 - performs no GitHub App API requests
 - creates no GitHub Check Runs
+- publishes no deployment events
 - performs no paid OpenAI requests
 
 The deployment job declares no GitHub repository permissions. Deployment credentials remain in protected environment stores and are not required by pull-request validation, including validation triggered from forks.
@@ -1060,6 +1116,11 @@ src/
 │   ├── github-webhook.ts
 │   ├── review-request.ts
 │   └── review-response.ts
+├── deployment/
+│   ├── canary-rollout.ts
+│   ├── deployment-event-publisher-config.ts
+│   ├── deployment-event-publisher.ts
+│   └── deployment-lifecycle-publisher.ts
 ├── engines/
 │   ├── ci/
 │   │   ├── ci-diagnostic-builder.ts
@@ -1125,7 +1186,7 @@ The current MVP intentionally has these limitations:
 - Check Run publication for fork-owned head commits is not yet validated
 - PR summary comments are not implemented
 - deployment events require PostgreSQL persistence; there is no process-local outcome store
-- deployment providers must submit the normalized event contract; rollout scripts do not publish events automatically yet
+- rollout publication requires an operator or trusted orchestrator to supply the exact persisted release ID and a new attempt UUID; provider deployment discovery is not implemented
 - the management and compliance dashboard is not implemented yet
 - policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API

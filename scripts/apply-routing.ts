@@ -5,6 +5,10 @@ import {
 import type {
   RoutingMode,
 } from "../src/routing-mode.js";
+import {
+  readCanaryTrafficPercent,
+  routingConfigForMode,
+} from "../src/routing-mode.js";
 
 function readRoutingMode(
   value: string | undefined,
@@ -43,6 +47,16 @@ const routingMode = readRoutingMode(
   process.env.ROUTING_MODE,
 );
 
+const canaryTrafficPercent =
+  readCanaryTrafficPercent(
+    process.env.CANARY_INITIAL_TRAFFIC_PERCENT,
+  );
+
+const routingConfig = routingConfigForMode(
+  routingMode,
+  canaryTrafficPercent,
+);
+
 runCommand(
   "docker",
   [
@@ -59,7 +73,7 @@ runCommand(
   ],
   {
     ...process.env,
-    ROUTING_MODE: routingMode,
+    ROUTING_CONFIG: routingConfig,
   },
 );
 
@@ -72,9 +86,11 @@ runCommand(
   {
     ...process.env,
     EXPECTED_ROUTING_MODE: routingMode,
+    EXPECTED_CANARY_TRAFFIC_PERCENT:
+      String(canaryTrafficPercent),
   },
 );
 
 console.log(
-  `Routing mode applied and verified: ${routingMode}.`,
+  `Routing mode applied and verified: ${routingMode} using ${routingConfig}.`,
 );
