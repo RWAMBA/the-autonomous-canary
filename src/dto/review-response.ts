@@ -5,6 +5,9 @@ import {
 import {
   ciInvestigationSchema,
 } from "./ci-investigation.js";
+import {
+  ciDiagnosticSchema,
+} from "./ci-diagnostic.js";
 
 const gitShaPattern = /^[a-f0-9]{7,64}$/i;
 const repositoryPartPattern = /^[a-z0-9._-]+$/i;
@@ -135,6 +138,8 @@ const commonReviewResponseFields = {
     .max(50),
   ciInvestigation:
     ciInvestigationSchema.optional(),
+  ciDiagnostic:
+    ciDiagnosticSchema.optional(),
   analysis: z
     .object({
       provider: z.enum([

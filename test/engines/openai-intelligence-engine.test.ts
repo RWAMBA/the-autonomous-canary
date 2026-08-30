@@ -88,6 +88,7 @@ const defaultAssessment:
       "The structured assessment found low release risk.",
     findings: [],
     requiredActions: [],
+    ciDiagnosis: null,
     advisoryDeployment: {
       strategy: "STANDARD",
       initialTrafficPercent: 100,

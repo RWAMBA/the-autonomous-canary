@@ -484,7 +484,7 @@ test("POST /reviews processes a valid release review", async () => {
       modelTarget:
         "mock-canaryguard-v1",
       promptVersion:
-        "canaryguard-review-v2",
+        "canaryguard-review-v3",
     },
   );
 });

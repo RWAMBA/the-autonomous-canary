@@ -141,12 +141,70 @@ test("accepts a structured log-free CI investigation", () => {
         },
       ],
     },
+    ciDiagnostic: {
+      failureCategory: "TEST_FAILURE",
+      probableCause:
+        "The Test step in the quality job reported failure.",
+      relevantChangedFiles: [],
+      supportingEvidence: [
+        {
+          jobName: "quality",
+          stepName: "Test",
+          conclusion: "failure",
+          logEvidenceAvailable: true,
+        },
+      ],
+      confidence: "HIGH",
+      recommendedActions: [
+        "Repair the failing tests.",
+      ],
+      retryRecommendation:
+        "RETRY_AFTER_FIX",
+      affectsReleaseApproval: true,
+      classificationSource:
+        "DETERMINISTIC",
+    },
   };
 
   assert.deepEqual(
     parseReviewResponse(input),
     input,
   );
+});
+
+test("rejects raw log content in a CI diagnostic", () => {
+  assert.throws(() => parseReviewResponse({
+    ...createCommonResponse(),
+    decision: "BLOCK",
+    deployment: {
+      strategy: "BLOCKED",
+      initialTrafficPercent: 0,
+    },
+    ciDiagnostic: {
+      failureCategory: "TEST_FAILURE",
+      probableCause: "Tests failed.",
+      relevantChangedFiles: [],
+      supportingEvidence: [
+        {
+          jobName: "quality",
+          stepName: "Test",
+          conclusion: "failure",
+          logEvidenceAvailable: true,
+          logExcerpt:
+            "Raw log content must not be public.",
+        },
+      ],
+      confidence: "HIGH",
+      recommendedActions: [
+        "Repair the tests.",
+      ],
+      retryRecommendation:
+        "RETRY_AFTER_FIX",
+      affectsReleaseApproval: true,
+      classificationSource:
+        "DETERMINISTIC",
+    },
+  }));
 });
 
 test("rejects raw CI logs in the public investigation response", () => {

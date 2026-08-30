@@ -18,6 +18,9 @@ import type {
   IntelligenceFinding,
   IntelligenceResult,
 } from "../intelligence/intelligence-engine.js";
+import {
+  buildCiDiagnostic,
+} from "../ci/ci-diagnostic-builder.js";
 
 export interface PolicyEvaluationInput {
   readonly reviewId: string;
@@ -376,6 +379,19 @@ implements PolicyEngine {
             .summary
         : `Release blocked by hard-coded policy: ${policyOverrides.join(", ")}.`;
 
+    const ciDiagnostic =
+      input.deterministicAssessment
+        .ciInvestigation === undefined
+        ? undefined
+        : buildCiDiagnostic(
+            input.request,
+            input.deterministicAssessment
+              .ciInvestigation,
+            input.intelligenceResult
+              .assessment
+              .ciDiagnosis,
+          );
+
     return parseReviewResponse({
       reviewId: input.reviewId,
       repository: {
@@ -401,6 +417,13 @@ implements PolicyEngine {
               ciInvestigation:
                 input.deterministicAssessment
                   .ciInvestigation,
+            }
+      ),
+      ...(
+        ciDiagnostic === undefined
+          ? {}
+          : {
+              ciDiagnostic,
             }
       ),
       deployment: createDeployment(

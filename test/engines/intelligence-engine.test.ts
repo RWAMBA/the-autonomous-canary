@@ -8,14 +8,66 @@ import {
 } from "node:test";
 
 import {
+  intelligenceAssessmentSchema,
   intelligenceTelemetrySchema,
 } from "../../src/engines/intelligence/intelligence-engine.js";
+
+test("accepts a bounded advisory CI diagnosis", () => {
+  const result = intelligenceAssessmentSchema.parse({
+    advisoryDecision: "BLOCK",
+    riskScore: 70,
+    riskLevel: "HIGH",
+    summary: "CI evidence needs repair.",
+    findings: [],
+    requiredActions: [],
+    ciDiagnosis: {
+      failureCategory: "BUILD_FAILURE",
+      probableCause:
+        "The build could not resolve an imported module.",
+      relevantChangedFiles: [
+        "src/app.ts",
+      ],
+      confidence: "MEDIUM",
+      recommendedActions: [
+        "Correct the module import.",
+      ],
+      retryRecommendation:
+        "RETRY_AFTER_FIX",
+    },
+    advisoryDeployment: {
+      strategy: "BLOCKED",
+      initialTrafficPercent: 0,
+    },
+  });
+
+  equal(
+    result.ciDiagnosis?.failureCategory,
+    "BUILD_FAILURE",
+  );
+});
+
+test("requires an explicit nullable advisory CI diagnosis", () => {
+  const result = intelligenceAssessmentSchema.safeParse({
+    advisoryDecision: "CONTINUE",
+    riskScore: 10,
+    riskLevel: "LOW",
+    summary: "No CI failure.",
+    findings: [],
+    requiredActions: [],
+    advisoryDeployment: {
+      strategy: "STANDARD",
+      initialTrafficPercent: 100,
+    },
+  });
+
+  equal(result.success, false);
+});
 
 const validMockTelemetry = {
   provider: "MOCK",
   modelTarget: "mock-canaryguard-v1",
   promptVersion:
-    "canaryguard-review-v2",
+    "canaryguard-review-v3",
   inputTokens: 0,
   outputTokens: 0,
   totalTokens: 0,
@@ -27,7 +79,7 @@ const validOpenAITelemetry = {
   provider: "OPENAI",
   modelTarget: "gpt-5.6-luna",
   promptVersion:
-    "canaryguard-review-v2",
+    "canaryguard-review-v3",
   inputTokens: 1_000,
   cachedInputTokens: 200,
   cacheWriteInputTokens: 100,

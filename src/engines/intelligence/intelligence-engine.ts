@@ -6,6 +6,9 @@ import type {
   ReviewRequestDto,
 } from "../../dto/review-request.js";
 import {
+  advisoryCiDiagnosisSchema,
+} from "../../dto/ci-diagnostic.js";
+import {
   reviewRiskLevelSchema,
 } from "../../dto/review-response.js";
 
@@ -66,6 +69,8 @@ export const intelligenceAssessmentSchema = z
           .max(500),
       )
       .max(50),
+    ciDiagnosis:
+      advisoryCiDiagnosisSchema.nullable(),
     advisoryDeployment: z
       .object({
         strategy: z.enum([
