@@ -17,6 +17,10 @@ import {
   HttpError,
 } from "../middleware/http-error.js";
 import type {
+  DeploymentEventDto,
+  DeploymentEventReceiptDto,
+} from "../dto/deployment-event.js";
+import type {
   EnabledPostgresPersistenceConfig,
 } from "./persistence-config.js";
 import type {
@@ -29,6 +33,9 @@ import type {
   WorkflowRunDeliveryInput,
   WorkflowRunDeliveryResult,
 } from "./release-lifecycle-store.js";
+import {
+  recordPostgresDeploymentEvent,
+} from "./postgres-deployment-event-store.js";
 
 interface RepositoryRow
 extends QueryResultRow {
@@ -63,8 +70,10 @@ extends QueryResultRow {
   readonly pull_request_number: number;
 }
 
-const migrationVersion =
-  "001_release_lifecycle";
+const migrationVersions = [
+  "001_release_lifecycle",
+  "002_deployment_event_ingestion",
+] as const;
 
 function isUniqueViolation(
   error: unknown,
@@ -307,17 +316,35 @@ implements ReleaseLifecycleStore {
     }>(
       `SELECT version
        FROM schema_migrations
-       WHERE version = $1`,
+       WHERE version = ANY($1::text[])`,
       [
-        migrationVersion,
+        migrationVersions,
       ],
     );
 
-    if (result.rowCount !== 1) {
+    const appliedVersions = new Set(
+      result.rows.map((row) => row.version),
+    );
+    const missingVersion =
+      migrationVersions.find(
+        (version) =>
+          !appliedVersions.has(version),
+      );
+
+    if (missingVersion !== undefined) {
       throw new Error(
-        `Database migration ${migrationVersion} has not been applied.`,
+        `Database migration ${missingVersion} has not been applied.`,
       );
     }
+  }
+
+  async recordDeploymentEvent(
+    event: DeploymentEventDto,
+  ): Promise<DeploymentEventReceiptDto> {
+    return recordPostgresDeploymentEvent(
+      this.pool,
+      event,
+    );
   }
 
   async resolveReleaseId(
@@ -692,6 +719,30 @@ implements ReleaseLifecycleStore {
             ],
           );
 
+          await client.query(
+            `UPDATE deployment_attempts
+             SET status = 'CANCELLED',
+                 completed_at = COALESCE(
+                   completed_at,
+                   now()
+                 )
+             WHERE release_id IN (
+               SELECT release_id
+               FROM releases
+               WHERE pull_request_id = $1
+                 AND head_sha <> $2
+                 AND status = 'SUPERSEDED'
+             )
+               AND status IN (
+                 'STARTED',
+                 'OBSERVING'
+               )`,
+            [
+              pullRequestId,
+              payload.pull_request.head.sha,
+            ],
+          );
+
           if (payload.action === "closed") {
             await client.query(
               `UPDATE releases
@@ -710,6 +761,23 @@ implements ReleaseLifecycleStore {
                    updated_at = now()
                WHERE release_id = $1
                  AND status IN ('PENDING', 'PROCESSING')`,
+              [
+                releaseId,
+              ],
+            );
+
+            await client.query(
+              `UPDATE deployment_attempts
+               SET status = 'CANCELLED',
+                   completed_at = COALESCE(
+                     completed_at,
+                     now()
+                   )
+               WHERE release_id = $1
+                 AND status IN (
+                   'STARTED',
+                   'OBSERVING'
+                 )`,
               [
                 releaseId,
               ],

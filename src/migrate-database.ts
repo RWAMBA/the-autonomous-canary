@@ -17,15 +17,23 @@ if (config.provider !== "POSTGRES") {
   );
 }
 
-const migrationUrl = new URL(
-  "../db/migrations/001_release_lifecycle.sql",
-  import.meta.url,
-);
-
-const migration = await readFile(
-  migrationUrl,
-  "utf8",
-);
+const migrations = [
+  {
+    version: "001_release_lifecycle",
+    url: new URL(
+      "../db/migrations/001_release_lifecycle.sql",
+      import.meta.url,
+    ),
+  },
+  {
+    version:
+      "002_deployment_event_ingestion",
+    url: new URL(
+      "../db/migrations/002_deployment_event_ingestion.sql",
+      import.meta.url,
+    ),
+  },
+] as const;
 
 const pool = createPostgresPool(config);
 const client = await pool.connect();
@@ -38,11 +46,18 @@ try {
     ],
   );
 
-  await client.query(migration);
+  for (const migration of migrations) {
+    await client.query(
+      await readFile(
+        migration.url,
+        "utf8",
+      ),
+    );
 
-  console.log(
-    "Database migration 001_release_lifecycle applied.",
-  );
+    console.log(
+      `Database migration ${migration.version} applied.`,
+    );
+  }
 } finally {
   try {
     await client.query(

@@ -17,6 +17,10 @@ import type {
 import type {
   GitHubWorkflowRunTask,
 } from "../github/github-workflow-task.js";
+import type {
+  DeploymentEventDto,
+  DeploymentEventReceiptDto,
+} from "../dto/deployment-event.js";
 
 export interface ReviewPersistenceContext {
   readonly releaseId?: string;
@@ -40,6 +44,12 @@ export interface ReviewLifecycleRecorder {
   recordReview(
     record: ReviewLifecycleRecord,
   ): Promise<void>;
+}
+
+export interface DeploymentLifecycleRecorder {
+  recordDeploymentEvent(
+    event: DeploymentEventDto,
+  ): Promise<DeploymentEventReceiptDto>;
 }
 
 export interface PullRequestDeliveryInput {
@@ -127,4 +137,5 @@ export interface GitHubLifecycleStore {
 
 export type ReleaseLifecycleStore =
   ReviewLifecycleRecorder
-  & GitHubLifecycleStore;
+  & GitHubLifecycleStore
+  & DeploymentLifecycleRecorder;

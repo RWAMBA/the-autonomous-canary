@@ -2,7 +2,7 @@
 
 CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a software change is safe to release, identifies possible failure risks, and selects an appropriate deployment strategy.
 
-The current MVP provides secure `POST /reviews` and `POST /github/reviews` APIs, plus optional signed GitHub webhook ingestion, durable release-lifecycle persistence, and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
+The current MVP provides secure review and deployment-event APIs, plus optional signed GitHub webhook ingestion, durable release-lifecycle persistence, and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
 ## Current MVP status
 
@@ -32,6 +32,8 @@ The MVP:
 - blocks authoritative failed CI conclusions even when aggregate test evidence says `passed`
 - records structured intelligence telemetry
 - records normalized predictions, deterministic findings, model accounting, final policy decisions, and audit events without storing raw diffs, CI logs, prompts, credentials, or model output
+- accepts idempotent deployment starts, bounded canary observations, and continuation, promotion, rollback, blocked, or failed outcomes
+- compares persisted risk predictions with actual outcomes without changing hard-coded policy
 - supports authenticated local, Docker, CI, and Render execution
 
 The optional `OPENAI` provider:
@@ -93,10 +95,11 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `POST` | `/reviews` | Creates a release-risk review |
 | `POST` | `/github/reviews` | Collects GitHub Actions evidence and creates a review |
 | `POST` | `/github/webhooks` | Validates signed GitHub events and optionally queues pull-request workflow reviews |
+| `POST` | `/deployment-events` | Records release-correlated deployment starts, observations, and outcomes |
 
 ## Authentication
 
-Both review-creation endpoints require a bearer token:
+The review-creation and deployment-event endpoints require a bearer token:
 
 ```http
 Authorization: Bearer <CANARYGUARD_API_KEY>
@@ -457,6 +460,68 @@ The Check Run contains only the review identifier, final decision, validated ris
 
 PostgreSQL tasks use `FOR UPDATE SKIP LOCKED`, bounded leases, and bounded retry attempts. Multiple workers may safely share the queue. The stable Check Run external identifier makes retries idempotent: a retry updates the existing CanaryGuard run rather than creating another one.
 
+## Record deployment outcomes
+
+`POST /deployment-events` is available only with PostgreSQL persistence. It authenticates with the same service-level bearer token as the review APIs and accepts three strict event variants:
+
+| Event | Required correlation | Effect |
+|---|---|---|
+| `DEPLOYMENT_STARTED` | Event, release, and attempt UUIDs | Verifies the persisted policy strategy and traffic percentage, then starts one active attempt |
+| `CANARY_OBSERVED` | Event, release, and attempt UUIDs | Records bounded health, traffic, error-rate, latency, and optional sample-size evidence |
+| `DEPLOYMENT_OUTCOME_RECORDED` | Event and release UUIDs; attempt UUID except for `BLOCKED` | Records `CONTINUED`, `PROMOTED`, `ROLLED_BACK`, `BLOCKED`, or `FAILED` and computes prediction accuracy |
+
+Example canary sequence:
+
+```bash
+curl \
+  --request POST \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "eventId": "323e4567-e89b-42d3-a456-426614174000",
+    "eventType": "DEPLOYMENT_STARTED",
+    "releaseId": "123e4567-e89b-42d3-a456-426614174000",
+    "deploymentAttemptId": "223e4567-e89b-42d3-a456-426614174000",
+    "occurredAt": "2026-08-30T15:32:42.000Z",
+    "provider": "RENDER",
+    "strategy": "CANARY",
+    "initialTrafficPercent": 5
+  }' \
+  http://127.0.0.1:3000/deployment-events
+```
+
+```json
+{
+  "eventId": "423e4567-e89b-42d3-a456-426614174000",
+  "eventType": "CANARY_OBSERVED",
+  "releaseId": "123e4567-e89b-42d3-a456-426614174000",
+  "deploymentAttemptId": "223e4567-e89b-42d3-a456-426614174000",
+  "occurredAt": "2026-08-30T15:34:00.000Z",
+  "trafficPercent": 5,
+  "healthStatus": "HEALTHY",
+  "errorRateThresholdPassed": true,
+  "latencyThresholdPassed": true,
+  "sampleSize": 200
+}
+```
+
+```json
+{
+  "eventId": "523e4567-e89b-42d3-a456-426614174000",
+  "eventType": "DEPLOYMENT_OUTCOME_RECORDED",
+  "releaseId": "123e4567-e89b-42d3-a456-426614174000",
+  "deploymentAttemptId": "223e4567-e89b-42d3-a456-426614174000",
+  "occurredAt": "2026-08-30T15:35:00.000Z",
+  "outcome": "PROMOTED"
+}
+```
+
+An accepted new event returns HTTP `202`; an exact replay returns HTTP `200` with `replayed: true`. Reusing an event UUID for different validated content returns HTTP `409`. Replay records persist only a SHA-256 digest of the normalized event, not a raw payload.
+
+Each event is transactionally correlated to the release and, when applicable, the same deployment attempt. Events that violate persisted policy, attempt state, release identity, or chronological order fail closed. `CONTINUED` keeps a canary attempt in observation; for a standard 100% deployment it records successful continuation and completes the attempt. Pull-request closure or supersession cancels active attempts.
+
+Prediction direction is measured deterministically. `HIGH`, `CRITICAL`, or `BLOCKED` predictions are adverse; `BLOCKED`, `ROLLED_BACK`, and `FAILED` results are adverse. Equality between the predicted and actual direction produces `directionallyCorrect: true`. The measurement is stored and returned, but it never executes deployment commands, overrides policy, or creates a policy change.
+
 ## Final deployment policy
 
 | Final condition | Decision | Strategy | Initial traffic |
@@ -477,7 +542,7 @@ The AI recommendation cannot override failed tests, failed CI evidence, critical
 
 ### Payload limits
 
-Review and webhook HTTP request bodies are each limited to 256 KiB.
+Review, deployment-event, and webhook HTTP request bodies are each limited to 256 KiB.
 
 The Git diff is limited to 200,000 characters.
 
@@ -801,7 +866,7 @@ export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
 npm run db:migrate
 ```
 
-The migration is transactional and protected by a PostgreSQL advisory lock. Application startup verifies migration `001_release_lifecycle` and fails closed when it is absent. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
+The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies `001_release_lifecycle` and `002_deployment_event_ingestion` and fails closed when either is absent. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
 
 When PostgreSQL-backed webhook ingestion is enabled, `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS` is also required. This prevents accepted durable deliveries from accumulating without a worker.
 
@@ -983,12 +1048,14 @@ The deployment workflow:
 ```text
 src/
 ├── controllers/
+│   ├── deployment-event-controller.ts
 │   ├── github-review-controller.ts
 │   └── review-controller.ts
 ├── dto/
 │   ├── ci-evidence.ts
 │   ├── ci-diagnostic.ts
 │   ├── ci-investigation.ts
+│   ├── deployment-event.ts
 │   ├── github-review-request.ts
 │   ├── github-webhook.ts
 │   ├── review-request.ts
@@ -1028,6 +1095,7 @@ src/
 ├── persistence/
 │   ├── durable-automation-config.ts
 │   ├── persistence-config.ts
+│   ├── postgres-deployment-event-store.ts
 │   ├── postgres-release-lifecycle-store.ts
 │   └── release-lifecycle-store.ts
 ├── migrate-database.ts
@@ -1056,8 +1124,9 @@ The current MVP intentionally has these limitations:
 - automated workflow processing does not yet collect external security findings
 - Check Run publication for fork-owned head commits is not yet validated
 - PR summary comments are not implemented
-- deployment-attempt, canary-observation, and outcome tables are ready, but Phase 5 event ingestion has not populated them yet
-- prediction/outcome reporting remains empty until Phase 5 records deployment events
+- deployment events require PostgreSQL persistence; there is no process-local outcome store
+- deployment providers must submit the normalized event contract; rollout scripts do not publish events automatically yet
+- the management and compliance dashboard is not implemented yet
 - policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API
 
