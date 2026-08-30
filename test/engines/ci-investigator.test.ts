@@ -124,6 +124,145 @@ test("reports cancelled evidence as incomplete", () => {
   );
 });
 
+test("ignores conditionally skipped jobs in a successful workflow", () => {
+  const evidence = createEvidence();
+
+  const result =
+    new DefaultCiInvestigator()
+      .investigate(
+        parseCiEvidence({
+          ...evidence,
+          jobs: [
+            ...evidence.jobs,
+            {
+              jobId: 102,
+              name: "Deploy to Render",
+              conclusion: "skipped",
+              steps: [],
+            },
+          ],
+        }),
+      );
+
+  assert.equal(result.outcome, "PASSED");
+  assert.deepEqual(result.summary, {
+    totalJobs: 2,
+    failedJobs: 0,
+    incompleteJobs: 0,
+    failedSteps: 0,
+    incompleteSteps: 0,
+  });
+  assert.deepEqual(
+    result.problemJobs,
+    [],
+  );
+});
+
+test("ignores conditionally skipped steps in a successful job", () => {
+  const evidence = createEvidence();
+  const job = evidence.jobs[0];
+
+  assert.ok(job);
+
+  const result =
+    new DefaultCiInvestigator()
+      .investigate(
+        parseCiEvidence({
+          ...evidence,
+          jobs: [
+            {
+              ...job,
+              steps: [
+                ...job.steps,
+                {
+                  number: 5,
+                  name: "Optional upload",
+                  conclusion: "skipped",
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+  assert.equal(result.outcome, "PASSED");
+  assert.equal(
+    result.summary.incompleteSteps,
+    0,
+  );
+  assert.deepEqual(
+    result.problemJobs,
+    [],
+  );
+});
+
+test("keeps a skipped workflow conclusion incomplete", () => {
+  const evidence = createEvidence();
+
+  const result =
+    new DefaultCiInvestigator()
+      .investigate(
+        parseCiEvidence({
+          ...evidence,
+          conclusion: "skipped",
+        }),
+      );
+
+  assert.equal(
+    result.outcome,
+    "INCOMPLETE",
+  );
+  assert.equal(
+    result.summary.incompleteJobs,
+    0,
+  );
+});
+
+test("excludes downstream skipped steps from failed-job evidence", () => {
+  const evidence = createEvidence("failure");
+  const job = evidence.jobs[0];
+
+  assert.ok(job);
+
+  const result =
+    new DefaultCiInvestigator()
+      .investigate(
+        parseCiEvidence({
+          ...evidence,
+          jobs: [
+            {
+              ...job,
+              steps: [
+                ...job.steps,
+                {
+                  number: 5,
+                  name: "Deploy",
+                  conclusion: "skipped",
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+  assert.equal(result.outcome, "FAILED");
+  assert.equal(
+    result.summary.incompleteSteps,
+    0,
+  );
+  assert.deepEqual(
+    result.problemJobs[0]
+      ?.problemSteps,
+    [
+      {
+        number: 4,
+        name: "Test",
+        conclusion: "failure",
+      },
+    ],
+  );
+});
+
 test("honors a failed workflow conclusion when jobs report success", () => {
   const evidence = createEvidence();
 

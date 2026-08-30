@@ -384,6 +384,61 @@ test("incomplete CI evidence forces high-risk canary routing without blocking", 
   );
 });
 
+test("conditionally skipped deployment jobs preserve successful CI routing", () => {
+  const result = evaluate(
+    createRequest(
+      "passed",
+      [],
+      parseCiEvidence({
+        provider: "GITHUB_ACTIONS",
+        workflowName:
+          "Continuous Integration",
+        runId: 33_309_974_954,
+        runAttempt: 1,
+        conclusion: "success",
+        jobs: [
+          {
+            jobId: 101,
+            name:
+              "Type-check, test, and build",
+            conclusion: "success",
+            steps: [
+              {
+                number: 10,
+                name: "Test",
+                conclusion: "success",
+              },
+            ],
+          },
+          {
+            jobId: 102,
+            name: "Deploy to Render",
+            conclusion: "skipped",
+            steps: [],
+          },
+        ],
+      }),
+    ),
+  );
+
+  assert.equal(
+    result.ciInvestigation?.outcome,
+    "PASSED",
+  );
+  assert.equal(
+    result.ciDiagnostic,
+    undefined,
+  );
+  assert.deepEqual(result.risk, {
+    score: 20,
+    level: "LOW",
+  });
+  assert.deepEqual(result.deployment, {
+    strategy: "STANDARD",
+    initialTrafficPercent: 100,
+  });
+});
+
 test("preserves a cautious AI block recommendation", () => {
   const result = evaluate(
     createRequest(),

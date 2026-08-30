@@ -245,7 +245,7 @@ Supported terminal conclusions are:
 - `stale`
 - `startup_failure`
 
-The deterministic investigator classifies `failure`, `timed_out`, `action_required`, and `startup_failure` as failed. It classifies `neutral`, `cancelled`, `skipped`, and `stale` as incomplete. A failed workflow or job creates the blocking rule `CI_FAILED`; incomplete evidence creates a nonblocking high-risk `CI_INCOMPLETE` finding.
+The deterministic investigator classifies `failure`, `timed_out`, `action_required`, and `startup_failure` as failed. It classifies `neutral`, `cancelled`, and `stale` as incomplete. A workflow-level `skipped` conclusion also remains incomplete. Job- and step-level `skipped` conclusions represent conditional non-participation: they are excluded from problem evidence and do not make an otherwise successful workflow incomplete. A failed workflow or job creates the blocking rule `CI_FAILED`; incomplete evidence creates a nonblocking high-risk `CI_INCOMPLETE` finding.
 
 The public response may include `ciInvestigation` with the workflow identity, outcome, counts, and affected jobs and steps. Raw `logExcerpt` values are never included in that response.
 

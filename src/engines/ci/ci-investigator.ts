@@ -51,6 +51,20 @@ function classifyConclusion(
   return "PASSED";
 }
 
+function classifyNestedConclusion(
+  conclusion: CiConclusion,
+):
+  | "PASSED"
+  | "FAILED"
+  | "INCOMPLETE"
+  | "SKIPPED" {
+  if (conclusion === "skipped") {
+    return "SKIPPED";
+  }
+
+  return classifyConclusion(conclusion);
+}
+
 function freezeInvestigation(
   investigation: CiInvestigationDto,
 ): CiInvestigationDto {
@@ -85,7 +99,7 @@ implements CiInvestigator {
     const problemJobs =
       evidence.jobs.flatMap((job) => {
         const jobOutcome =
-          classifyConclusion(
+          classifyNestedConclusion(
             job.conclusion,
           );
 
@@ -100,7 +114,7 @@ implements CiInvestigator {
         const problemSteps =
           job.steps.flatMap((step) => {
             const stepOutcome =
-              classifyConclusion(
+              classifyNestedConclusion(
                 step.conclusion,
               );
 
@@ -113,7 +127,10 @@ implements CiInvestigator {
               incompleteSteps += 1;
             }
 
-            if (stepOutcome === "PASSED") {
+            if (
+              stepOutcome === "PASSED"
+              || stepOutcome === "SKIPPED"
+            ) {
               return [];
             }
 
@@ -128,7 +145,10 @@ implements CiInvestigator {
           });
 
         if (
-          jobOutcome === "PASSED"
+          (
+            jobOutcome === "PASSED"
+            || jobOutcome === "SKIPPED"
+          )
           && problemSteps.length === 0
         ) {
           return [];
