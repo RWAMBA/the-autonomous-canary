@@ -9,6 +9,9 @@ import {
 import type {
   CiEvidenceDto,
 } from "../../src/dto/ci-evidence.js";
+import type {
+  TrivyEvidenceReportDto,
+} from "../../src/dto/external-evidence.js";
 import {
   parseReviewRequest,
 } from "../../src/dto/review-request.js";
@@ -40,6 +43,8 @@ interface RequestOptions {
   readonly securityFindings?:
     readonly SecurityFindingInput[];
   readonly ci?: CiEvidenceDto;
+  readonly externalEvidence?:
+    readonly TrivyEvidenceReportDto[];
 }
 
 function createCiEvidence(
@@ -91,6 +96,8 @@ function createRequest(
         options.testStatus ?? "passed",
       securityFindings:
         options.securityFindings ?? [],
+      externalEvidence:
+        options.externalEvidence ?? [],
       ...(
         options.ci === undefined
           ? {}
@@ -100,6 +107,46 @@ function createRequest(
       ),
     },
   });
+}
+
+function createTrivyEvidence(
+  options: {
+    readonly severity?:
+      "HIGH" | "CRITICAL";
+    readonly truncated?: boolean;
+  } = {},
+): TrivyEvidenceReportDto {
+  return {
+    schemaVersion:
+      "canaryguard-trivy-evidence-v1",
+    source: "TRIVY",
+    adapterVersion: "1.0.0",
+    generatedAt:
+      "2026-09-07T20:00:00.000Z",
+    repository: {
+      owner: "RWAMBA",
+      name: "the-autonomous-canary",
+    },
+    workflow: {
+      runId: 34_158_189_969,
+      runAttempt: 1,
+      headSha: "1234567890abcdef",
+    },
+    scanTarget: "FILESYSTEM",
+    findings: [
+      {
+        identifier: "CVE-2026-0001",
+        category:
+          "DEPENDENCY_VULNERABILITY",
+        severity:
+          options.severity ?? "CRITICAL",
+        title:
+          "CVE-2026-0001 affects example@1.0.0",
+        file: "package-lock.json",
+      },
+    ],
+    truncated: options.truncated ?? false,
+  };
 }
 
 test("returns no findings for clean passed evidence", () => {
@@ -204,6 +251,86 @@ test("marks a critical security finding as blocking", () => {
     [
       "SECURITY_FINDING_CRITICAL",
     ],
+  );
+});
+
+test("blocks a critical attributed Trivy finding", () => {
+  const assessment =
+    new DefaultDeterministicEngine()
+      .analyze(createRequest({
+        externalEvidence: [
+          createTrivyEvidence(),
+        ],
+      }));
+
+  const finding = assessment.findings[0];
+
+  assert.ok(finding);
+  assert.equal(
+    finding.code,
+    "TRIVY_DEPENDENCY_VULNERABILITY_CRITICAL",
+  );
+  assert.equal(finding.blocking, true);
+  assert.deepEqual(finding.attribution, {
+    source: "TRIVY",
+    sourceVersion: "1.0.0",
+    identifier: "CVE-2026-0001",
+    category:
+      "DEPENDENCY_VULNERABILITY",
+    generatedAt:
+      "2026-09-07T20:00:00.000Z",
+  });
+  assert.deepEqual(
+    assessment.blockingRuleCodes,
+    [
+      "TRIVY_DEPENDENCY_VULNERABILITY_CRITICAL",
+    ],
+  );
+});
+
+test("raises risk when Trivy evidence was truncated without blocking", () => {
+  const assessment =
+    new DefaultDeterministicEngine()
+      .analyze(createRequest({
+        externalEvidence: [
+          createTrivyEvidence({
+            severity: "HIGH",
+            truncated: true,
+          }),
+        ],
+      }));
+
+  assert.equal(
+    assessment.findings[0]?.code,
+    "TRIVY_DEPENDENCY_VULNERABILITY_HIGH",
+  );
+  assert.equal(
+    assessment.findings[1]?.code,
+    "TRIVY_EVIDENCE_TRUNCATED",
+  );
+  assert.equal(
+    assessment.findings[1]?.blocking,
+    false,
+  );
+  assert.deepEqual(
+    assessment.blockingRuleCodes,
+    [],
+  );
+});
+
+test("rejects Trivy evidence correlated to another release", () => {
+  assert.throws(
+    () => createRequest({
+      externalEvidence: [
+        {
+          ...createTrivyEvidence(),
+          workflow: {
+            ...createTrivyEvidence().workflow,
+            headSha: "ffffffffffffffff",
+          },
+        },
+      ],
+    }),
   );
 });
 

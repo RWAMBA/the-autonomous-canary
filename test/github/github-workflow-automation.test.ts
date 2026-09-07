@@ -85,6 +85,9 @@ test("collects exact workflow and pull-request evidence before publishing one Ch
   let evidenceRequest:
     GitHubCiCollectionRequest
     | undefined;
+  let externalEvidenceRequest:
+    GitHubCiCollectionRequest
+    | undefined;
   let changeRequest:
     GitHubPullRequestChangeRequest
     | undefined;
@@ -134,6 +137,35 @@ test("collects exact workflow and pull-request evidence before publishing one Ch
           };
         },
       },
+      externalEvidenceCollector: {
+        collectExternalEvidence:
+          async (input) => {
+            externalEvidenceRequest = input;
+
+            return [
+              {
+                schemaVersion:
+                  "canaryguard-trivy-evidence-v1",
+                source: "TRIVY",
+                adapterVersion: "1.0.0",
+                generatedAt:
+                  "2026-09-07T20:00:00.000Z",
+                repository:
+                  task.repository,
+                workflow: {
+                  runId:
+                    task.workflowRun.id,
+                  runAttempt: 2,
+                  headSha,
+                },
+                scanTarget:
+                  "FILESYSTEM",
+                findings: [],
+                truncated: false,
+              },
+            ];
+          },
+      },
       changeCollector: {
         collectPullRequestChange:
           async (input) => {
@@ -181,6 +213,10 @@ test("collects exact workflow and pull-request evidence before publishing one Ch
     expectedInstallationId:
       task.installationId,
   });
+  assert.deepEqual(
+    externalEvidenceRequest,
+    evidenceRequest,
+  );
   assert.deepEqual(changeRequest, {
     repository: task.repository,
     pullRequestNumber: 14,
@@ -195,6 +231,7 @@ test("collects exact workflow and pull-request evidence before publishing one Ch
       evidence: {
         testStatus: unknown;
         securityFindings: unknown;
+        externalEvidence: unknown;
         ci: unknown;
       };
     };
@@ -211,6 +248,9 @@ test("collects exact workflow and pull-request evidence before publishing one Ch
       securityFindings:
         normalizedReviewInput.evidence
           .securityFindings,
+      externalEvidence:
+        normalizedReviewInput.evidence
+          .externalEvidence,
     },
     {
       repository: task.repository,
@@ -225,6 +265,26 @@ test("collects exact workflow and pull-request evidence before publishing one Ch
       },
       testStatus: "failed",
       securityFindings: [],
+      externalEvidence: [
+        {
+          schemaVersion:
+            "canaryguard-trivy-evidence-v1",
+          source: "TRIVY",
+          adapterVersion: "1.0.0",
+          generatedAt:
+            "2026-09-07T20:00:00.000Z",
+          repository: task.repository,
+          workflow: {
+            runId:
+              task.workflowRun.id,
+            runAttempt: 2,
+            headSha,
+          },
+          scanTarget: "FILESYSTEM",
+          findings: [],
+          truncated: false,
+        },
+      ],
     },
   );
 

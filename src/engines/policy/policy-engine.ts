@@ -75,6 +75,14 @@ function mapDeterministicFinding(
             file: finding.file,
           }
     ),
+    ...(
+      finding.attribution === undefined
+        ? {}
+        : {
+            evidenceAttribution:
+              finding.attribution,
+          }
+    ),
   };
 }
 

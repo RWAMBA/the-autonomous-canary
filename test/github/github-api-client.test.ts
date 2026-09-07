@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  createHash,
   generateKeyPairSync,
 } from "node:crypto";
 import {
@@ -134,6 +135,70 @@ function jsonResponse(
       },
     },
   );
+}
+
+function createStoredZip(
+  fileName: string,
+  contentText: string,
+): Buffer {
+  const name = Buffer.from(fileName, "utf8");
+  const content = Buffer.from(
+    contentText,
+    "utf8",
+  );
+  const local = Buffer.alloc(30);
+
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0, 6);
+  local.writeUInt16LE(0, 8);
+  local.writeUInt32LE(0, 14);
+  local.writeUInt32LE(content.length, 18);
+  local.writeUInt32LE(content.length, 22);
+  local.writeUInt16LE(name.length, 26);
+  local.writeUInt16LE(0, 28);
+
+  const central = Buffer.alloc(46);
+  const localLength =
+    local.length + name.length + content.length;
+
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(0, 8);
+  central.writeUInt16LE(0, 10);
+  central.writeUInt32LE(0, 16);
+  central.writeUInt32LE(content.length, 20);
+  central.writeUInt32LE(content.length, 24);
+  central.writeUInt16LE(name.length, 28);
+  central.writeUInt16LE(0, 30);
+  central.writeUInt16LE(0, 32);
+  central.writeUInt16LE(0, 34);
+  central.writeUInt16LE(0, 36);
+  central.writeUInt32LE(0, 38);
+  central.writeUInt32LE(0, 42);
+
+  const end = Buffer.alloc(22);
+  const centralLength =
+    central.length + name.length;
+
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(centralLength, 12);
+  end.writeUInt32LE(localLength, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([
+    local,
+    name,
+    content,
+    central,
+    name,
+    end,
+  ]);
 }
 
 function createFetch(
@@ -1351,4 +1416,234 @@ test("maps canary and standard release strategies to neutral and successful chec
     "neutral",
     "success",
   ]);
+});
+
+test("collects one digest-bound Trivy artifact for the exact workflow", async () => {
+  const evidence = {
+    schemaVersion:
+      "canaryguard-trivy-evidence-v1",
+    source: "TRIVY",
+    adapterVersion: "1.0.0",
+    generatedAt:
+      "2026-09-07T20:00:00.000Z",
+    repository: request.repository,
+    workflow: {
+      runId: request.runId,
+      runAttempt: 2,
+      headSha,
+    },
+    scanTarget: "FILESYSTEM",
+    findings: [],
+    truncated: false,
+  } as const;
+  const archive = createStoredZip(
+    "canaryguard-trivy-evidence.json",
+    JSON.stringify(evidence),
+  );
+  const digest = createHash("sha256")
+    .update(archive)
+    .digest("hex");
+  const fakeFetch = createFetch((url) => {
+    if (url.endsWith("/installation")) {
+      return jsonResponse(
+        installationResponse,
+      );
+    }
+
+    if (url.endsWith("/access_tokens")) {
+      return jsonResponse(tokenResponse);
+    }
+
+    if (
+      url.includes(
+        "/artifacts?name=canaryguard-trivy-filesystem-v1",
+      )
+    ) {
+      return jsonResponse({
+        total_count: 1,
+        artifacts: [
+          {
+            id: 701,
+            name:
+              "canaryguard-trivy-filesystem-v1",
+            size_in_bytes: archive.length,
+            expired: false,
+            digest: `sha256:${digest}`,
+          },
+        ],
+      });
+    }
+
+    if (
+      url.includes(
+        "/artifacts?name=canaryguard-trivy-container-v1",
+      )
+    ) {
+      return jsonResponse({
+        total_count: 0,
+        artifacts: [],
+      });
+    }
+
+    if (
+      url.endsWith(
+        "/actions/artifacts/701/zip",
+      )
+    ) {
+      return new Response(
+        new Uint8Array(archive),
+        {
+          status: 200,
+          headers: {
+            "content-type":
+              "application/zip",
+          },
+        },
+      );
+    }
+
+    return jsonResponse({}, 404);
+  });
+  const client = new GitHubAppApiClient(
+    config,
+    {
+      fetchImplementation:
+        fakeFetch.implementation,
+    },
+  );
+
+  assert.deepEqual(
+    await client.collectExternalEvidence({
+      ...request,
+      expectedRunAttempt: 2,
+      expectedInstallationId: 901,
+    }),
+    [evidence],
+  );
+
+  const downloadRequest =
+    fakeFetch.requests.find(
+      (captured) => captured.url.endsWith(
+        "/actions/artifacts/701/zip",
+      ),
+    );
+
+  assert.equal(
+    downloadRequest?.init?.redirect,
+    "follow",
+  );
+});
+
+test("returns no external evidence when named artifacts are absent", async () => {
+  const fakeFetch = createFetch((url) => {
+    if (url.endsWith("/installation")) {
+      return jsonResponse(
+        installationResponse,
+      );
+    }
+
+    if (url.endsWith("/access_tokens")) {
+      return jsonResponse(tokenResponse);
+    }
+
+    if (url.includes("/artifacts?name=")) {
+      return jsonResponse({
+        total_count: 0,
+        artifacts: [],
+      });
+    }
+
+    return jsonResponse({}, 404);
+  });
+  const client = new GitHubAppApiClient(
+    config,
+    {
+      fetchImplementation:
+        fakeFetch.implementation,
+    },
+  );
+
+  assert.deepEqual(
+    await client.collectExternalEvidence(
+      request,
+    ),
+    [],
+  );
+});
+
+test("rejects a Trivy artifact whose digest does not match", async () => {
+  const archive = createStoredZip(
+    "canaryguard-trivy-evidence.json",
+    "{}",
+  );
+  const fakeFetch = createFetch((url) => {
+    if (url.endsWith("/installation")) {
+      return jsonResponse(
+        installationResponse,
+      );
+    }
+
+    if (url.endsWith("/access_tokens")) {
+      return jsonResponse(tokenResponse);
+    }
+
+    if (
+      url.includes(
+        "/artifacts?name=canaryguard-trivy-filesystem-v1",
+      )
+    ) {
+      return jsonResponse({
+        total_count: 1,
+        artifacts: [
+          {
+            id: 701,
+            name:
+              "canaryguard-trivy-filesystem-v1",
+            size_in_bytes: archive.length,
+            expired: false,
+            digest:
+              `sha256:${"0".repeat(64)}`,
+          },
+        ],
+      });
+    }
+
+    if (
+      url.includes(
+        "/artifacts?name=canaryguard-trivy-container-v1",
+      )
+    ) {
+      return jsonResponse({
+        total_count: 0,
+        artifacts: [],
+      });
+    }
+
+    if (
+      url.endsWith(
+        "/actions/artifacts/701/zip",
+      )
+    ) {
+      return new Response(
+        new Uint8Array(archive),
+      );
+    }
+
+    return jsonResponse({}, 404);
+  });
+  const client = new GitHubAppApiClient(
+    config,
+    {
+      fetchImplementation:
+        fakeFetch.implementation,
+    },
+  );
+
+  await assert.rejects(
+    client.collectExternalEvidence(request),
+    (error: unknown) =>
+      error instanceof HttpError
+      && error.code
+        === "GITHUB_PROVIDER_UNAVAILABLE",
+  );
 });

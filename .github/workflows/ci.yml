@@ -97,21 +97,6 @@ jobs:
             exit 1
           fi
 
-      - name: Scan dependencies and configuration
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_INCLUDE_DEV_DEPS: "true"
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,misconfig
-          vuln-type: library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: "false"
-          format: table
-          exit-code: "1"
-          hide-progress: "true"
-
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -138,6 +123,42 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Scan dependencies and configuration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_INCLUDE_DEV_DEPS: "true"
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: "false"
+          format: json
+          output: .canaryguard-trivy-filesystem.json
+          exit-code: "1"
+          hide-progress: "true"
+
+      - name: Normalize filesystem security evidence
+        if: ${{ always() && hashFiles('.canaryguard-trivy-filesystem.json') != '' }}
+        env:
+          CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir canaryguard-evidence
+          npx --no-install tsx scripts/normalize-trivy-evidence.ts \
+            --input .canaryguard-trivy-filesystem.json \
+            --output canaryguard-evidence/canaryguard-trivy-evidence.json \
+            --scan-target FILESYSTEM
+
+      - name: Upload filesystem security evidence
+        if: ${{ always() && hashFiles('canaryguard-evidence/canaryguard-trivy-evidence.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canaryguard-trivy-filesystem-v1
+          path: canaryguard-evidence/canaryguard-trivy-evidence.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Type-check
         run: npm run typecheck
@@ -192,9 +213,30 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: "false"
-          format: table
+          format: json
+          output: .canaryguard-trivy-container.json
           exit-code: "1"
           hide-progress: "true"
+
+      - name: Normalize container security evidence
+        if: ${{ always() && hashFiles('.canaryguard-trivy-container.json') != '' }}
+        env:
+          CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir canaryguard-evidence
+          npx --no-install tsx scripts/normalize-trivy-evidence.ts \
+            --input .canaryguard-trivy-container.json \
+            --output canaryguard-evidence/canaryguard-trivy-evidence.json \
+            --scan-target CONTAINER_IMAGE
+
+      - name: Upload container security evidence
+        if: ${{ always() && hashFiles('canaryguard-evidence/canaryguard-trivy-evidence.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canaryguard-trivy-container-v1
+          path: canaryguard-evidence/canaryguard-trivy-evidence.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Verify container metadata
         shell: bash

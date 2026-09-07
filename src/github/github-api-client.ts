@@ -1,4 +1,8 @@
 import {
+  createHash,
+} from "node:crypto";
+
+import {
   z,
 } from "zod";
 
@@ -23,6 +27,12 @@ import type {
   ReviewResponseDto,
 } from "../dto/review-response.js";
 import {
+  parseTrivyEvidenceReport,
+} from "../dto/external-evidence.js";
+import type {
+  TrivyEvidenceReportDto,
+} from "../dto/external-evidence.js";
+import {
   parseReviewResponse,
 } from "../dto/review-response.js";
 import {
@@ -37,6 +47,9 @@ import {
 import type {
   GitHubClock,
 } from "./github-app-jwt.js";
+import {
+  extractSingleArtifactFile,
+} from "./github-artifact-archive.js";
 
 export const githubApiVersion =
   "2026-03-10";
@@ -46,6 +59,28 @@ export const githubApiBaseUrl =
 
 export const maximumGitHubApiResponseBytes =
   2 * 1_024 * 1_024;
+
+export const maximumGitHubArtifactArchiveBytes =
+  512 * 1_024;
+
+export const maximumExternalEvidenceBytes =
+  256 * 1_024;
+
+export const trivyEvidenceArtifactFileName =
+  "canaryguard-trivy-evidence.json";
+
+const trivyArtifactTargets = [
+  {
+    artifactName:
+      "canaryguard-trivy-filesystem-v1",
+    scanTarget: "FILESYSTEM",
+  },
+  {
+    artifactName:
+      "canaryguard-trivy-container-v1",
+    scanTarget: "CONTAINER_IMAGE",
+  },
+] as const;
 
 type GitHubFetch = typeof fetch;
 
@@ -207,6 +242,54 @@ const workflowJobsSchema = z
         ],
         message:
           "GitHub workflow jobs response must contain the complete bounded job set.",
+      });
+    }
+  });
+
+const workflowArtifactSchema = z
+  .object({
+    id: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubIdentifier),
+    name: z.string().trim().min(1).max(255),
+    size_in_bytes: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumGitHubArtifactArchiveBytes),
+    expired: z.literal(false),
+    digest: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/u),
+  })
+  .passthrough();
+
+const workflowArtifactsSchema = z
+  .object({
+    total_count: z
+      .number()
+      .int()
+      .min(0)
+      .max(1),
+    artifacts: z
+      .array(workflowArtifactSchema)
+      .max(1),
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    if (
+      value.total_count
+      !== value.artifacts.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: [
+          "artifacts",
+        ],
+        message:
+          "GitHub artifact response must contain the complete bounded result.",
       });
     }
   });
@@ -412,6 +495,14 @@ export interface GitHubCiEvidenceCollector {
   ): Promise<CiEvidenceDto>;
 }
 
+export interface GitHubExternalEvidenceCollector {
+  collectExternalEvidence(
+    request: GitHubCiCollectionRequest,
+  ): Promise<
+    readonly TrivyEvidenceReportDto[]
+  >;
+}
+
 export interface GitHubPullRequestChangeCollector {
   collectPullRequestChange(
     request: GitHubPullRequestChangeRequest,
@@ -566,9 +657,49 @@ async function readBoundedResponseText(
     .toString("utf8");
 }
 
+async function readBoundedResponseBytes(
+  response: Response,
+  maximumBytes: number,
+): Promise<Buffer> {
+  if (response.body === null) {
+    return Buffer.alloc(0);
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const result = await reader.read();
+
+      if (result.done) {
+        break;
+      }
+
+      totalBytes += result.value.byteLength;
+
+      if (totalBytes > maximumBytes) {
+        await reader.cancel();
+
+        throw new Error(
+          "GitHub API response exceeded the configured boundary.",
+        );
+      }
+
+      chunks.push(Buffer.from(result.value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks, totalBytes);
+}
+
 export class GitHubAppApiClient
 implements
 GitHubCiEvidenceCollector,
+GitHubExternalEvidenceCollector,
 GitHubPullRequestChangeCollector,
 GitHubCheckRunPublisher {
   private readonly config:
@@ -692,6 +823,55 @@ GitHubCheckRunPublisher {
       );
 
     return JSON.parse(responseText);
+  }
+
+  private async requestBytes(
+    path: string,
+    authorization: string,
+    maximumBytes: number,
+  ): Promise<Buffer> {
+    const abortController =
+      new AbortController();
+    const timeout = setTimeout(
+      () => abortController.abort(),
+      this.config.timeoutMs,
+    );
+
+    try {
+      const response =
+        await this.fetchImplementation(
+          `${githubApiBaseUrl}${path}`,
+          {
+            method: "GET",
+            redirect: "follow",
+            signal:
+              abortController.signal,
+            headers: {
+              accept:
+                "application/vnd.github+json",
+              authorization:
+                `Bearer ${authorization}`,
+              "user-agent":
+                "CanaryGuard/0.1.0",
+              "x-github-api-version":
+                githubApiVersion,
+            },
+          },
+        );
+
+      if (!response.ok) {
+        throw new GitHubApiResponseError(
+          response.status,
+        );
+      }
+
+      return readBoundedResponseBytes(
+        response,
+        maximumBytes,
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async getInstallationId(
@@ -1042,6 +1222,180 @@ GitHubCheckRunPublisher {
         ),
       });
     } catch (error) {
+      throw createProviderError(error);
+    }
+  }
+
+  private async collectNamedTrivyArtifact(
+    request: GitHubCiCollectionRequest,
+    installationToken: string,
+    target:
+      typeof trivyArtifactTargets[number],
+  ): Promise<
+    TrivyEvidenceReportDto | undefined
+  > {
+    const artifactName =
+      target.artifactName;
+    const path =
+      `/repos/${encodePathPart(request.repository.owner)}/${encodePathPart(request.repository.name)}/actions/runs/${encodePathPart(request.runId)}/artifacts?name=${encodePathPart(artifactName)}&per_page=100`;
+    const artifactList =
+      workflowArtifactsSchema.parse(
+        await this.requestJson(
+          path,
+          installationToken,
+          {
+            method: "GET",
+          },
+        ),
+      );
+
+    if (artifactList.artifacts.length === 0) {
+      return undefined;
+    }
+
+    const artifact = artifactList.artifacts[0];
+
+    if (
+      artifact === undefined
+      || artifact.name !== artifactName
+    ) {
+      throw new Error(
+        "GitHub returned an unexpected artifact.",
+      );
+    }
+
+    const archive = await this.requestBytes(
+      `/repos/${encodePathPart(request.repository.owner)}/${encodePathPart(request.repository.name)}/actions/artifacts/${encodePathPart(artifact.id)}/zip`,
+      installationToken,
+      maximumGitHubArtifactArchiveBytes,
+    );
+
+    if (
+      archive.length !== artifact.size_in_bytes
+    ) {
+      throw new Error(
+        "GitHub artifact archive size does not match its metadata.",
+      );
+    }
+
+    const digest = createHash("sha256")
+      .update(archive)
+      .digest("hex");
+
+    if (
+      artifact.digest
+      !== `sha256:${digest}`
+    ) {
+      throw new Error(
+        "GitHub artifact digest verification failed.",
+      );
+    }
+
+    const evidenceBytes =
+      extractSingleArtifactFile(
+        archive,
+        trivyEvidenceArtifactFileName,
+        maximumExternalEvidenceBytes,
+      );
+    const report = parseTrivyEvidenceReport(
+      JSON.parse(evidenceBytes.toString("utf8")),
+    );
+
+    if (
+      report.scanTarget
+        !== target.scanTarget
+      || report.workflow.runId
+        !== request.runId
+      || (
+        request.expectedRunAttempt
+          !== undefined
+        && report.workflow.runAttempt
+          !== request.expectedRunAttempt
+      )
+      || !repositoriesMatch(
+        `${report.repository.owner}/${report.repository.name}`,
+        request.repository.owner,
+        request.repository.name,
+      )
+      || !shaValuesMatch(
+        report.workflow.headSha,
+        request.expectedHeadSha,
+      )
+    ) {
+      throw new Error(
+        "Trivy evidence does not match the requested workflow identity.",
+      );
+    }
+
+    return report;
+  }
+
+  async collectExternalEvidence(
+    input: GitHubCiCollectionRequest,
+  ): Promise<
+    readonly TrivyEvidenceReportDto[]
+  > {
+    const request =
+      collectionRequestSchema.parse(input);
+
+    try {
+      const appJwt = createGitHubAppJwt(
+        this.config,
+        this.clock,
+      );
+      const installationId =
+        await this.getInstallationId(
+          request.repository.owner,
+          request.repository.name,
+          appJwt,
+        );
+
+      if (
+        request.expectedInstallationId
+          !== undefined
+        && installationId
+          !== request.expectedInstallationId
+      ) {
+        throw new HttpError({
+          statusCode: 409,
+          code:
+            "GITHUB_INSTALLATION_ID_MISMATCH",
+          message:
+            "The GitHub App installation does not match the webhook delivery.",
+        });
+      }
+
+      const installationToken =
+        await this.createInstallationToken(
+          installationId,
+          request.repository.name,
+          appJwt,
+          {
+            actions: "read",
+          },
+        );
+      const reports = await Promise.all(
+        trivyArtifactTargets.map(
+          (target) =>
+            this.collectNamedTrivyArtifact(
+              request,
+              installationToken,
+              target,
+            ),
+        ),
+      );
+
+      return reports.filter(
+        (
+          report,
+        ): report is TrivyEvidenceReportDto =>
+          report !== undefined,
+      );
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
       throw createProviderError(error);
     }
   }

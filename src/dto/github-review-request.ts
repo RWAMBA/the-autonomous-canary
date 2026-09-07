@@ -16,7 +16,9 @@ export const githubReviewRequestSchema = z
     repository: reviewRepositorySchema,
     change: reviewChangeSchema,
     evidence:
-      reviewEvidenceWithoutCiSchema,
+      reviewEvidenceWithoutCiSchema.omit({
+        externalEvidence: true,
+      }),
     github: z
       .object({
         runId: z

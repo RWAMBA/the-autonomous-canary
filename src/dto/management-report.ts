@@ -19,6 +19,9 @@ import {
   reviewDecisionSchema,
   reviewRiskLevelSchema,
 } from "./review-response.js";
+import {
+  externalEvidenceCategorySchema,
+} from "./external-evidence.js";
 
 export const defaultManagementReleasePageSize = 25;
 export const maximumManagementReleasePageSize = 100;
@@ -441,6 +444,25 @@ const deterministicFindingSchema = z
       .max(500)
       .optional(),
     blocking: z.boolean(),
+    evidenceAttribution: z
+      .object({
+        source: z.literal("TRIVY"),
+        sourceVersion: z
+          .string()
+          .trim()
+          .min(1)
+          .max(50),
+        identifier: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200),
+        category:
+          externalEvidenceCategorySchema,
+        generatedAt: reportTimeSchema,
+      })
+      .strict()
+      .optional(),
     createdAt: reportTimeSchema,
   })
   .strict();

@@ -6,6 +6,7 @@ import type {
 } from "../dto/review-response.js";
 import type {
   GitHubCiEvidenceCollector,
+  GitHubExternalEvidenceCollector,
 } from "../github/github-api-client.js";
 import type {
   ReviewController,
@@ -20,6 +21,8 @@ export interface GitHubReviewController {
 export interface GitHubReviewControllerOptions {
   readonly evidenceCollector:
     GitHubCiEvidenceCollector;
+  readonly externalEvidenceCollector:
+    GitHubExternalEvidenceCollector;
   readonly reviewController:
     ReviewController;
 }
@@ -32,12 +35,17 @@ implements GitHubReviewController {
   private readonly reviewController:
     ReviewController;
 
+  private readonly externalEvidenceCollector:
+    GitHubExternalEvidenceCollector;
+
   constructor(
     options:
       GitHubReviewControllerOptions,
   ) {
     this.evidenceCollector =
       options.evidenceCollector;
+    this.externalEvidenceCollector =
+      options.externalEvidenceCollector;
     this.reviewController =
       options.reviewController;
   }
@@ -58,6 +66,18 @@ implements GitHubReviewController {
             request.change.headSha,
         });
 
+    const externalEvidence =
+      await this.externalEvidenceCollector
+        .collectExternalEvidence({
+          repository:
+            request.repository,
+          runId: request.github.runId,
+          expectedHeadSha:
+            request.change.headSha,
+          expectedRunAttempt:
+            ci.runAttempt,
+        });
+
     return this.reviewController
       .createReview({
         repository:
@@ -66,6 +86,7 @@ implements GitHubReviewController {
         evidence: {
           ...request.evidence,
           ci,
+          externalEvidence,
         },
       });
   }

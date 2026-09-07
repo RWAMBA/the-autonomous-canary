@@ -133,6 +133,10 @@ const githubReviewController =
         );
       },
     },
+    externalEvidenceCollector: {
+      collectExternalEvidence:
+        () => Promise.resolve([]),
+    },
     reviewController,
   });
 

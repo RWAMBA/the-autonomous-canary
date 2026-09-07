@@ -23,6 +23,12 @@ const managementReportingMigrationUrl =
     import.meta.url,
   );
 
+const externalEvidenceMigrationUrl =
+  new URL(
+    "../../db/migrations/004_external_evidence_attribution.sql",
+    import.meta.url,
+  );
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -139,5 +145,58 @@ test("adds reporting indexes without duplicating lifecycle data", async () => {
   assert.doesNotMatch(
     migration,
     /CREATE TABLE|raw_(?:payload|log|prompt|model|diff)|api_key|private_key/iu,
+  );
+});
+
+test("adds bounded external evidence attribution without raw report storage", async () => {
+  const migration = await readFile(
+    externalEvidenceMigrationUrl,
+    "utf8",
+  );
+
+  for (const column of [
+    "evidence_source",
+    "evidence_source_version",
+    "evidence_identifier",
+    "evidence_category",
+    "evidence_generated_at",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(
+        `ADD COLUMN IF NOT EXISTS ${column}`,
+        "u",
+      ),
+    );
+  }
+
+  assert.match(
+    migration,
+    /004_external_evidence_attribution/u,
+  );
+  assert.match(
+    migration,
+    /conrelid = 'deterministic_findings'::regclass/u,
+  );
+
+  for (const requiredColumn of [
+    "evidence_source",
+    "evidence_source_version",
+    "evidence_identifier",
+    "evidence_category",
+    "evidence_generated_at",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(
+        `${requiredColumn} IS NOT NULL`,
+        "u",
+      ),
+    );
+  }
+
+  assert.doesNotMatch(
+    migration,
+    /raw_(?:report|payload|log|prompt|model|diff)|api_key|private_key/iu,
   );
 });

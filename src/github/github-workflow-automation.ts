@@ -14,6 +14,7 @@ import type {
   GitHubCheckRunPublisher,
   GitHubCheckRunPublication,
   GitHubCiEvidenceCollector,
+  GitHubExternalEvidenceCollector,
   GitHubPullRequestChangeCollector,
 } from "./github-api-client.js";
 import type {
@@ -112,6 +113,8 @@ export interface DefaultGitHubWorkflowRunProcessorOptions {
     GitHubCiEvidenceCollector;
   readonly changeCollector:
     GitHubPullRequestChangeCollector;
+  readonly externalEvidenceCollector:
+    GitHubExternalEvidenceCollector;
   readonly reviewController:
     ReviewController;
   readonly checkRunPublisher:
@@ -127,6 +130,9 @@ implements GitHubWorkflowRunProcessor {
 
   private readonly changeCollector:
     GitHubPullRequestChangeCollector;
+
+  private readonly externalEvidenceCollector:
+    GitHubExternalEvidenceCollector;
 
   private readonly reviewController:
     ReviewController;
@@ -145,6 +151,8 @@ implements GitHubWorkflowRunProcessor {
       options.evidenceCollector;
     this.changeCollector =
       options.changeCollector;
+    this.externalEvidenceCollector =
+      options.externalEvidenceCollector;
     this.reviewController =
       options.reviewController;
     this.checkRunPublisher =
@@ -159,7 +167,7 @@ implements GitHubWorkflowRunProcessor {
     const task =
       parseGitHubWorkflowRunTask(input);
 
-    const [ci, change] =
+    const [ci, change, externalEvidence] =
       await Promise.all([
         this.evidenceCollector.collect({
           repository: task.repository,
@@ -180,6 +188,17 @@ implements GitHubWorkflowRunProcessor {
           expectedInstallationId:
             task.installationId,
         }),
+        this.externalEvidenceCollector
+          .collectExternalEvidence({
+            repository: task.repository,
+            runId: task.workflowRun.id,
+            expectedHeadSha:
+              task.workflowRun.headSha,
+            expectedRunAttempt:
+              task.workflowRun.runAttempt,
+            expectedInstallationId:
+              task.installationId,
+          }),
       ]);
 
     const review =
@@ -191,6 +210,7 @@ implements GitHubWorkflowRunProcessor {
             testStatus:
               deriveTestStatus(ci),
             securityFindings: [],
+            externalEvidence,
             ci,
           },
         }, {

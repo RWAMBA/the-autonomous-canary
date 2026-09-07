@@ -159,8 +159,10 @@ const githubReviewController =
   githubApiClient === undefined
     ? undefined
     : new DefaultGitHubReviewController({
-        evidenceCollector:
-          githubApiClient,
+      evidenceCollector:
+        githubApiClient,
+      externalEvidenceCollector:
+        githubApiClient,
         reviewController,
       });
 
@@ -212,6 +214,8 @@ const workflowRunTaskDispatcher = (() => {
   const processor =
     new DefaultGitHubWorkflowRunProcessor({
       evidenceCollector:
+        githubApiClient,
+      externalEvidenceCollector:
         githubApiClient,
       changeCollector:
         githubApiClient,

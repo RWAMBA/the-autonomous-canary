@@ -7,6 +7,11 @@ import type {
 import type {
   ReviewRiskLevel,
 } from "../../dto/review-response.js";
+import type {
+  ExternalEvidenceCategory,
+  TrivyEvidenceFindingDto,
+  TrivyEvidenceReportDto,
+} from "../../dto/external-evidence.js";
 import {
   DefaultCiInvestigator,
 } from "../ci/ci-investigator.js";
@@ -22,6 +27,14 @@ export interface DeterministicFinding {
   readonly explanation: string;
   readonly file?: string;
   readonly blocking: boolean;
+  readonly attribution?: {
+    readonly source: "TRIVY";
+    readonly sourceVersion: string;
+    readonly identifier: string;
+    readonly category:
+      ExternalEvidenceCategory;
+    readonly generatedAt: string;
+  };
 }
 
 export interface DeterministicAssessment {
@@ -114,6 +127,51 @@ function createSecurityFinding(
   });
 }
 
+function createTrivyFinding(
+  report: TrivyEvidenceReportDto,
+  finding: TrivyEvidenceFindingDto,
+): DeterministicFinding {
+  return Object.freeze({
+    code:
+      `TRIVY_${finding.category}_${finding.severity}`,
+    source: "DETERMINISTIC",
+    severity: finding.severity,
+    title: finding.title,
+    explanation:
+      `Finding ${finding.identifier} was normalized by Trivy adapter ${report.adapterVersion}.`,
+    ...(finding.file === undefined
+      ? {}
+      : {
+          file: finding.file,
+        }),
+    blocking:
+      finding.severity === "CRITICAL",
+    attribution: Object.freeze({
+      source: report.source,
+      sourceVersion:
+        report.adapterVersion,
+      identifier: finding.identifier,
+      category: finding.category,
+      generatedAt: report.generatedAt,
+    }),
+  });
+}
+
+function createTruncatedEvidenceFinding(
+  report: TrivyEvidenceReportDto,
+): DeterministicFinding {
+  return Object.freeze({
+    code: "TRIVY_EVIDENCE_TRUNCATED",
+    source: "DETERMINISTIC",
+    severity: "HIGH",
+    title:
+      "Trivy evidence exceeded the reporting boundary",
+    explanation:
+      `Trivy adapter ${report.adapterVersion} retained only the bounded finding set for ${report.scanTarget}.`,
+    blocking: false,
+  });
+}
+
 function createCiFinding(
   investigation: CiInvestigationDto,
 ): DeterministicFinding | undefined {
@@ -178,6 +236,28 @@ implements DeterministicEngine {
       findings.push(
         createSecurityFinding(securityFinding),
       );
+    }
+
+    for (
+      const report
+      of request.evidence.externalEvidence
+    ) {
+      for (const finding of report.findings) {
+        findings.push(
+          createTrivyFinding(
+            report,
+            finding,
+          ),
+        );
+      }
+
+      if (report.truncated) {
+        findings.push(
+          createTruncatedEvidenceFinding(
+            report,
+          ),
+        );
+      }
     }
 
     const ciInvestigation =
