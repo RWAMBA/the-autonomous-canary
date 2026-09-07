@@ -149,3 +149,39 @@ test("rejects a persistence response outside the public DTO", async () => {
     },
   );
 });
+
+test("exports versioned evidence from the bounded detail contract", async () => {
+  const controller = new DefaultManagementReportController(
+    {
+      listReleases: () => {
+        throw new Error("unexpected call");
+      },
+      getRelease: () => Promise.resolve({
+        repository: {
+          owner: "RWAMBA",
+          name: "the-autonomous-canary",
+        },
+        release,
+        workflowRuns: { items: [], truncated: false },
+        deterministicFindings: { items: [], truncated: false },
+        deploymentAttempts: { items: [], truncated: false },
+        auditEvents: { items: [], truncated: false },
+      }),
+    },
+    {
+      now: () => new Date("2026-09-07T18:42:07.000Z"),
+    },
+  );
+
+  const report = await controller.exportRelease(
+    releaseId,
+    new URLSearchParams({
+      repositoryOwner: "RWAMBA",
+      repositoryName: "the-autonomous-canary",
+    }),
+  );
+
+  assert.equal(report.schemaVersion, "canaryguard-evidence-report-v1");
+  assert.equal(report.exportedAt, "2026-09-07T18:42:07.000Z");
+  assert.equal(report.evidence.release.releaseId, releaseId);
+});

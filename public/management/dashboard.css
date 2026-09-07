@@ -217,6 +217,12 @@ footer,
   justify-content: space-between;
 }
 
+.detail-actions {
+  display: flex;
+  gap: .65rem;
+  align-items: center;
+}
+
 .section-heading h2,
 .dashboard-toolbar h2,
 .detail-header h2 {
@@ -587,6 +593,10 @@ footer p {
   footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .detail-actions {
+    width: 100%;
   }
 
   .environment-chip {

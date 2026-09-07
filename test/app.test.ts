@@ -237,6 +237,32 @@ const managementReportController = {
       },
     });
   },
+  exportRelease: (
+    releaseId: string,
+    searchParameters: URLSearchParams,
+  ) => {
+    managementReportCalls += 1;
+    lastManagementSearch = searchParameters.toString();
+
+    return Promise.resolve({
+      schemaVersion: "canaryguard-evidence-report-v1" as const,
+      exportedAt: "2026-09-07T18:42:07.000Z",
+      evidence: {
+        repository: {
+          owner: "RWAMBA",
+          name: "the-autonomous-canary",
+        },
+        release: {
+          ...managementReleaseSummary,
+          releaseId,
+        },
+        workflowRuns: { items: [], truncated: false },
+        deterministicFindings: { items: [], truncated: false },
+        deploymentAttempts: { items: [], truncated: false },
+        auditEvents: { items: [], truncated: false },
+      },
+    });
+  },
 };
 
 function createGitHubWebhookReceiver() {
@@ -647,6 +673,40 @@ test("GET /management/releases/:releaseId returns bounded release detail", async
     }).release.releaseId,
     reviewId,
   );
+});
+
+test("GET /management/releases/:releaseId/evidence-report downloads bounded JSON evidence", async () => {
+  const response = await fetch(
+    `${baseUrl}/management/releases/${reviewId}/evidence-report?repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary`,
+    {
+      headers: {
+        authorization: `Bearer ${reviewApiKey}`,
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(
+    response.headers.get("content-disposition"),
+    `attachment; filename="canaryguard-evidence-${reviewId}.json"`,
+  );
+  assert.match(response.headers.get("content-type") ?? "", /^application\/json;/u);
+  assert.equal(
+    (await response.json() as { schemaVersion: string }).schemaVersion,
+    "canaryguard-evidence-report-v1",
+  );
+});
+
+test("evidence-report export authenticates before reporting work", async () => {
+  const callsBefore = managementReportCalls;
+  const response = await fetch(
+    `${baseUrl}/management/releases/${reviewId}/evidence-report?repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary`,
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(managementReportCalls, callsBefore);
 });
 
 test("POST /management/releases returns method not allowed", async () => {

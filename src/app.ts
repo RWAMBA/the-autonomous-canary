@@ -24,6 +24,9 @@ import type {
 import type {
   ReviewResponseDto,
 } from "./dto/review-response.js";
+import type {
+  ManagementEvidenceReportDto,
+} from "./dto/management-report.js";
 import {
   getManagementDashboardAsset,
   managementDashboardHeaders,
@@ -93,6 +96,28 @@ function sendJson(
   response.end(
     JSON.stringify(body),
   );
+}
+
+function sendManagementEvidenceReport(
+  response: ServerResponse,
+  report: ManagementEvidenceReportDto,
+): void {
+  const body = JSON.stringify(report, undefined, 2);
+  const releaseId =
+    report.evidence.release.releaseId;
+
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-disposition":
+      `attachment; filename="canaryguard-evidence-${releaseId}.json"`,
+    "content-length": Buffer.byteLength(body),
+    "content-type":
+      "application/json; charset=utf-8",
+    "cross-origin-resource-policy":
+      "same-origin",
+    "x-content-type-options": "nosniff",
+  });
+  response.end(body);
 }
 
 function sendManagementDashboardAsset(
@@ -312,6 +337,43 @@ async function handleManagementReportRequest(
     );
 
     sendJson(response, 200, report);
+  } catch (error) {
+    request.resume();
+    sendErrorResponse(response, error);
+  }
+}
+
+async function handleManagementEvidenceExportRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  controller:
+    ManagementReportController | undefined,
+  authenticateReviewRequest:
+    ReviewApiKeyAuthenticator,
+  releaseId: string,
+  searchParameters: URLSearchParams,
+): Promise<void> {
+  try {
+    authenticateReviewRequest(request);
+
+    if (controller === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code:
+          "MANAGEMENT_REPORT_API_UNAVAILABLE",
+        message:
+          "Management reporting is not configured.",
+        expose: false,
+      });
+    }
+
+    sendManagementEvidenceReport(
+      response,
+      await controller.exportRelease(
+        releaseId,
+        searchParameters,
+      ),
+    );
   } catch (error) {
     request.resume();
     sendErrorResponse(response, error);
@@ -563,6 +625,9 @@ export function createRequestHandler(
       return;
     }
 
+    const managementEvidenceExportMatch =
+      /^\/management\/releases\/([^/]+)\/evidence-report$/u
+        .exec(pathname);
     const managementReleaseMatch =
       /^\/management\/releases\/([^/]+)$/u
         .exec(pathname);
@@ -570,6 +635,7 @@ export function createRequestHandler(
     if (
       pathname === "/management/releases"
       || managementReleaseMatch !== null
+      || managementEvidenceExportMatch !== null
     ) {
       if (request.method !== "GET") {
         request.resume();
@@ -592,14 +658,28 @@ export function createRequestHandler(
         return;
       }
 
-      void handleManagementReportRequest(
-        request,
-        response,
-        managementReportController,
-        authenticateReviewRequest,
-        requestUrl.searchParams,
-        managementReleaseMatch?.[1],
-      );
+      const exportReleaseId =
+        managementEvidenceExportMatch?.[1];
+
+      if (exportReleaseId !== undefined) {
+        void handleManagementEvidenceExportRequest(
+          request,
+          response,
+          managementReportController,
+          authenticateReviewRequest,
+          exportReleaseId,
+          requestUrl.searchParams,
+        );
+      } else {
+        void handleManagementReportRequest(
+          request,
+          response,
+          managementReportController,
+          authenticateReviewRequest,
+          requestUrl.searchParams,
+          managementReleaseMatch?.[1],
+        );
+      }
 
       return;
     }

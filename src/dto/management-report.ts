@@ -556,6 +556,16 @@ export const managementReleaseDetailSchema = z
   })
   .strict();
 
+export const managementEvidenceReportSchema = z
+  .object({
+    schemaVersion: z.literal(
+      "canaryguard-evidence-report-v1",
+    ),
+    exportedAt: reportTimeSchema,
+    evidence: managementReleaseDetailSchema,
+  })
+  .strict();
+
 export type ManagementReleaseSummaryDto = z.infer<
   typeof managementReleaseSummarySchema
 >;
@@ -566,6 +576,10 @@ export type ManagementReleaseListDto = z.infer<
 
 export type ManagementReleaseDetailDto = z.infer<
   typeof managementReleaseDetailSchema
+>;
+
+export type ManagementEvidenceReportDto = z.infer<
+  typeof managementEvidenceReportSchema
 >;
 
 export function parseManagementReleaseList(
@@ -580,6 +594,14 @@ export function parseManagementReleaseDetail(
   input: unknown,
 ): ManagementReleaseDetailDto {
   return managementReleaseDetailSchema.parse(
+    input,
+  );
+}
+
+export function parseManagementEvidenceReport(
+  input: unknown,
+): ManagementEvidenceReportDto {
+  return managementEvidenceReportSchema.parse(
     input,
   );
 }
