@@ -15,6 +15,9 @@ import {
   DefaultDeploymentEventController,
 } from "./controllers/deployment-event-controller.js";
 import {
+  DefaultManagementReportController,
+} from "./controllers/management-report-controller.js";
+import {
   createIntelligenceEngine,
 } from "./engines/intelligence/intelligence-engine-factory.js";
 import {
@@ -57,6 +60,9 @@ import {
   createPostgresPool,
   PostgresReleaseLifecycleStore,
 } from "./persistence/postgres-release-lifecycle-store.js";
+import {
+  PostgresManagementReportStore,
+} from "./persistence/postgres-management-report-store.js";
 import {
   loadPersistenceConfig,
 } from "./persistence/persistence-config.js";
@@ -104,7 +110,7 @@ const intelligenceEngine =
 const persistenceConfig =
   loadPersistenceConfig();
 
-const lifecycleStore = (() => {
+const postgresPool = (() => {
   if (
     persistenceConfig.provider
     === "DISABLED"
@@ -112,12 +118,17 @@ const lifecycleStore = (() => {
     return undefined;
   }
 
-  return new PostgresReleaseLifecycleStore(
-    createPostgresPool(
-      persistenceConfig,
-    ),
+  return createPostgresPool(
+    persistenceConfig,
   );
 })();
+
+const lifecycleStore =
+  postgresPool === undefined
+    ? undefined
+    : new PostgresReleaseLifecycleStore(
+        postgresPool,
+      );
 
 await lifecycleStore?.verifySchema();
 
@@ -267,6 +278,15 @@ const deploymentEventController =
         lifecycleStore,
       );
 
+const managementReportController =
+  postgresPool === undefined
+    ? undefined
+    : new DefaultManagementReportController(
+        new PostgresManagementReportStore(
+          postgresPool,
+        ),
+      );
+
 const requestHandler =
   createRequestHandler(
     loadReleaseMetadata(),
@@ -296,6 +316,14 @@ const requestHandler =
           ? {}
           : {
               deploymentEventController,
+            }
+      ),
+      ...(
+        managementReportController
+          === undefined
+          ? {}
+          : {
+              managementReportController,
             }
       ),
     },

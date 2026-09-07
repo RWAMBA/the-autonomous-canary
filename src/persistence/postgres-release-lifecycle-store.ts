@@ -73,6 +73,7 @@ extends QueryResultRow {
 const migrationVersions = [
   "001_release_lifecycle",
   "002_deployment_event_ingestion",
+  "003_management_reporting",
 ] as const;
 
 function isUniqueViolation(

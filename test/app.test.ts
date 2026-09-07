@@ -165,6 +165,80 @@ const deploymentEventController = {
   },
 };
 
+let managementReportCalls = 0;
+let lastManagementSearch = "";
+
+const managementReleaseSummary = {
+  releaseId: reviewId,
+  headSha:
+    "ae222bdc592e3721fc9024a02b20759e25cdb3f9",
+  status: "COMPLETED" as const,
+  createdAt:
+    "2026-08-30T18:47:11.000Z",
+  updatedAt:
+    "2026-08-30T18:52:22.000Z",
+};
+
+const managementReportController = {
+  listReleases: (
+    searchParameters: URLSearchParams,
+  ) => {
+    managementReportCalls += 1;
+    lastManagementSearch =
+      searchParameters.toString();
+
+    return Promise.resolve({
+      repository: {
+        owner: "RWAMBA",
+        name:
+          "the-autonomous-canary",
+      },
+      releases: [
+        managementReleaseSummary,
+      ],
+    });
+  },
+  getRelease: (
+    releaseId: string,
+    searchParameters: URLSearchParams,
+  ) => {
+    managementReportCalls += 1;
+    lastManagementSearch =
+      searchParameters.toString();
+
+    if (releaseId !== reviewId) {
+      throw new Error(
+        "Unexpected management release identity.",
+      );
+    }
+
+    return Promise.resolve({
+      repository: {
+        owner: "RWAMBA",
+        name:
+          "the-autonomous-canary",
+      },
+      release: managementReleaseSummary,
+      workflowRuns: {
+        items: [],
+        truncated: false,
+      },
+      deterministicFindings: {
+        items: [],
+        truncated: false,
+      },
+      deploymentAttempts: {
+        items: [],
+        truncated: false,
+      },
+      auditEvents: {
+        items: [],
+        truncated: false,
+      },
+    });
+  },
+};
+
 function createGitHubWebhookReceiver() {
   const config = loadGitHubWebhookConfig({
     [githubWebhookProviderEnvironmentVariable]:
@@ -268,6 +342,7 @@ const server = createServer(
       githubWebhookReceiver:
         createGitHubWebhookReceiver(),
       deploymentEventController,
+      managementReportController,
       authenticateReviewRequest:
         createReviewApiKeyAuthenticator(
           reviewApiKey,
@@ -471,6 +546,187 @@ test("POST /deployment-events is unavailable without durable persistence", async
             "application/json",
         },
         body: JSON.stringify({}),
+      },
+    );
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(
+      await response.json(),
+      {
+        error: {
+          code:
+            "INTERNAL_SERVER_ERROR",
+          message:
+            "An unexpected server error occurred.",
+        },
+      },
+    );
+  } finally {
+    await new Promise<void>(
+      (resolve, reject) => {
+        unavailableServer.close(
+          (error) => {
+            if (error !== undefined) {
+              reject(error);
+              return;
+            }
+
+            resolve();
+          },
+        );
+      },
+    );
+  }
+});
+
+test("GET /management/releases authenticates and returns a repository-scoped page", async () => {
+  const callsBefore = managementReportCalls;
+  const response = await fetch(
+    `${baseUrl}/management/releases?repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary&limit=10`,
+    {
+      headers: {
+        authorization:
+          `Bearer ${reviewApiKey}`,
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(
+    response.headers.get("cache-control"),
+    "no-store",
+  );
+  assert.equal(
+    managementReportCalls,
+    callsBefore + 1,
+  );
+  assert.equal(
+    lastManagementSearch,
+    "repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary&limit=10",
+  );
+  assert.equal(
+    (await response.json() as {
+      releases: Array<{
+        releaseId: string;
+      }>;
+    }).releases[0]?.releaseId,
+    reviewId,
+  );
+});
+
+test("GET /management/releases authenticates before reporting work", async () => {
+  const callsBefore = managementReportCalls;
+  const response = await fetch(
+    `${baseUrl}/management/releases?repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary`,
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(
+    managementReportCalls,
+    callsBefore,
+  );
+});
+
+test("GET /management/releases/:releaseId returns bounded release detail", async () => {
+  const response = await fetch(
+    `${baseUrl}/management/releases/${reviewId}?repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary`,
+    {
+      headers: {
+        authorization:
+          `Bearer ${reviewApiKey}`,
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(
+    (await response.json() as {
+      release: {
+        releaseId: string;
+      };
+    }).release.releaseId,
+    reviewId,
+  );
+});
+
+test("POST /management/releases returns method not allowed", async () => {
+  const response = await fetch(
+    `${baseUrl}/management/releases`,
+    {
+      method: "POST",
+    },
+  );
+
+  assert.equal(response.status, 405);
+  assert.equal(
+    response.headers.get("allow"),
+    "GET",
+  );
+  assert.deepEqual(
+    await response.json(),
+    {
+      error: {
+        code: "METHOD_NOT_ALLOWED",
+        message:
+          "Only GET is supported for management release reports.",
+      },
+    },
+  );
+});
+
+test("GET /management/releases is unavailable without PostgreSQL reporting", async () => {
+  const unavailableServer = createServer(
+    createRequestHandler(
+      {
+        channel: "canary",
+        commitSha: "abc123",
+        version: "1.2.3",
+      },
+      createFailureSimulator(0),
+      {
+        reviewController,
+        authenticateReviewRequest:
+          createReviewApiKeyAuthenticator(
+            reviewApiKey,
+          ),
+      },
+    ),
+  );
+
+  await new Promise<void>(
+    (resolve, reject) => {
+      unavailableServer.once(
+        "error",
+        reject,
+      );
+      unavailableServer.listen(
+        0,
+        "127.0.0.1",
+        resolve,
+      );
+    },
+  );
+
+  try {
+    const address =
+      unavailableServer.address();
+
+    if (
+      address === null
+      || typeof address === "string"
+    ) {
+      throw new Error(
+        "Expected a TCP test server.",
+      );
+    }
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/management/releases?repositoryOwner=RWAMBA&repositoryName=the-autonomous-canary`,
+      {
+        headers: {
+          authorization:
+            `Bearer ${reviewApiKey}`,
+        },
       },
     );
 

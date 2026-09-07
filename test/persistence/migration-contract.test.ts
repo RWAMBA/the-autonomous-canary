@@ -17,6 +17,12 @@ const deploymentEventMigrationUrl =
     import.meta.url,
   );
 
+const managementReportingMigrationUrl =
+  new URL(
+    "../../db/migrations/003_management_reporting.sql",
+    import.meta.url,
+  );
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -100,5 +106,38 @@ test("adds durable deployment event idempotency without raw payload storage", as
   assert.doesNotMatch(
     migration,
     /raw_(?:payload|log|prompt|model|diff)|api_key|private_key/iu,
+  );
+});
+
+test("adds reporting indexes without duplicating lifecycle data", async () => {
+  const migration = await readFile(
+    managementReportingMigrationUrl,
+    "utf8",
+  );
+
+  for (const index of [
+    "releases_repository_created_release_idx",
+    "workflow_runs_release_created_idx",
+    "deterministic_findings_release_finding_idx",
+    "deployment_attempts_release_started_idx",
+    "canary_observations_attempt_observed_idx",
+    "audit_events_release_occurred_idx",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(
+        `CREATE INDEX IF NOT EXISTS ${index}`,
+        "u",
+      ),
+    );
+  }
+
+  assert.match(
+    migration,
+    /003_management_reporting/u,
+  );
+  assert.doesNotMatch(
+    migration,
+    /CREATE TABLE|raw_(?:payload|log|prompt|model|diff)|api_key|private_key/iu,
   );
 });
