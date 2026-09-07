@@ -99,6 +99,7 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `POST` | `/github/reviews` | Collects GitHub Actions evidence and creates a review |
 | `POST` | `/github/webhooks` | Validates signed GitHub events and optionally queues pull-request workflow reviews |
 | `POST` | `/deployment-events` | Records release-correlated deployment starts, observations, and outcomes |
+| `GET` | `/management` | Serves the read-only management dashboard shell |
 | `GET` | `/management/releases` | Lists repository-scoped release summaries with keyset pagination |
 | `GET` | `/management/releases/:releaseId` | Returns one bounded release-lifecycle report |
 
@@ -577,6 +578,14 @@ npm run rollout:canary
 The supplied traffic percentage must exactly match the persisted policy decision. Clear the correlation values after the rollout and never place production identifiers or the shared API key in source files.
 
 ## Query management release reports
+
+Open `http://127.0.0.1:3000/management` for the read-only management dashboard. The public shell contains no release data. Enter a repository owner, repository name, and the existing service-level API key to load evidence from the management reporting endpoints.
+
+The dashboard presents release risk, policy decisions and overrides, CI diagnoses, model and prompt versions, latency and cost accounting, deployment attempts, canary observations, outcomes, rollbacks, and audit history. Release history uses the API's repository-bound keyset cursor to load older records. Each detail section preserves the API's explicit truncation indicator.
+
+The API key is copied into tab memory, immediately cleared from the password field, and cleared when the operator selects **Clear access** or leaves the page. It is never written to browser storage, cookies, URLs, or application logs. Dashboard assets are same-origin, contain no external scripts or analytics, and are served with a restrictive Content Security Policy and `Cache-Control: no-store`.
+
+The dashboard is a presentation layer over the existing authenticated, read-only reporting API. It cannot mutate policy, create outcomes, or execute deployments. Downloadable evidence reports remain a separate milestone.
 
 Management reporting is available only with PostgreSQL persistence and uses the existing service-level bearer authentication. Authentication occurs before query validation or database access.
 
@@ -1211,11 +1220,13 @@ src/
 │   ├── postgres-release-lifecycle-store.ts
 │   └── release-lifecycle-store.ts
 ├── migrate-database.ts
+├── management-dashboard-assets.ts
 ├── app.ts
 └── server.ts
 ```
 
 Database migrations are stored under `db/migrations/`.
+Management dashboard assets are stored under `public/management/`.
 
 ## MVP limitations
 
@@ -1238,7 +1249,7 @@ The current MVP intentionally has these limitations:
 - PR summary comments are not implemented
 - deployment events require PostgreSQL persistence; there is no process-local outcome store
 - rollout publication requires an operator or trusted orchestrator to supply the exact persisted release ID and a new attempt UUID; provider deployment discovery is not implemented
-- the management reporting API is available, but the dashboard UI and downloadable evidence reports are not implemented yet
+- the management reporting API and read-only dashboard are available, but downloadable evidence reports are not implemented yet
 - policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API
 

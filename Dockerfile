@@ -16,6 +16,7 @@ RUN npm ci
 
 COPY --chown=node:node tsconfig.json tsconfig.test.json ./
 COPY --chown=node:node db ./db
+COPY --chown=node:node public ./public
 COPY --chown=node:node src ./src
 COPY --chown=node:node test ./test
 
@@ -47,6 +48,7 @@ COPY --from=build --chown=65532:65532 /app/package.json ./package.json
 COPY --from=build --chown=65532:65532 /app/node_modules ./node_modules
 COPY --from=build --chown=65532:65532 /app/dist ./dist
 COPY --from=build --chown=65532:65532 /app/db ./db
+COPY --from=build --chown=65532:65532 /app/public ./public
 
 USER 65532
 

@@ -25,6 +25,13 @@ import type {
   ReviewResponseDto,
 } from "./dto/review-response.js";
 import {
+  getManagementDashboardAsset,
+  managementDashboardHeaders,
+} from "./management-dashboard-assets.js";
+import type {
+  ManagementDashboardAsset,
+} from "./management-dashboard-assets.js";
+import {
   createFailureSimulator,
 } from "./failure-simulator.js";
 import type {
@@ -86,6 +93,19 @@ function sendJson(
   response.end(
     JSON.stringify(body),
   );
+}
+
+function sendManagementDashboardAsset(
+  response: ServerResponse,
+  asset: ManagementDashboardAsset,
+): void {
+  response.writeHead(200, {
+    ...managementDashboardHeaders,
+    "content-length": asset.body.byteLength,
+    "content-type": asset.contentType,
+  });
+  response.end(asset.body);
+
 }
 
 const rejectUnavailableReviewRequest:
@@ -336,6 +356,35 @@ export function createRequestHandler(
       "http://localhost",
     );
     const pathname = requestUrl.pathname;
+
+    const managementDashboardAsset =
+      getManagementDashboardAsset(pathname);
+
+    if (managementDashboardAsset !== undefined) {
+      if (request.method !== "GET") {
+        request.resume();
+
+        response.setHeader("allow", "GET");
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only GET is supported for the management dashboard.",
+          }),
+        );
+
+        return;
+      }
+
+      sendManagementDashboardAsset(
+        response,
+        managementDashboardAsset,
+      );
+
+      return;
+    }
 
     if (
       request.method === "GET"
