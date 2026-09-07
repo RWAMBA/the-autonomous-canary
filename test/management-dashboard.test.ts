@@ -114,6 +114,9 @@ test("dashboard script keeps credentials in memory and uses safe DOM constructio
 
   assert.match(script, /authorization: `Bearer \$\{state\.apiKey\}`/u);
   assert.match(script, /requestReport\("\/management\/releases"/u);
+  assert.match(script, /\/evidence-report/u);
+  assert.match(script, /URL\.createObjectURL/u);
+  assert.match(script, /URL\.revokeObjectURL/u);
   assert.match(script, /state\.apiKey = ""/u);
   assert.doesNotMatch(script, /localStorage|sessionStorage|document\.cookie|innerHTML/u);
   assert.doesNotMatch(script, /https?:\/\//u);

@@ -102,6 +102,7 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `GET` | `/management` | Serves the read-only management dashboard shell |
 | `GET` | `/management/releases` | Lists repository-scoped release summaries with keyset pagination |
 | `GET` | `/management/releases/:releaseId` | Returns one bounded release-lifecycle report |
+| `GET` | `/management/releases/:releaseId/evidence-report` | Downloads one versioned bounded JSON evidence report |
 
 ## Authentication
 
@@ -585,7 +586,7 @@ The dashboard presents release risk, policy decisions and overrides, CI diagnose
 
 The API key is copied into tab memory, immediately cleared from the password field, and cleared when the operator selects **Clear access** or leaves the page. It is never written to browser storage, cookies, URLs, or application logs. Dashboard assets are same-origin, contain no external scripts or analytics, and are served with a restrictive Content Security Policy and `Cache-Control: no-store`.
 
-The dashboard is a presentation layer over the existing authenticated, read-only reporting API. It cannot mutate policy, create outcomes, or execute deployments. Downloadable evidence reports remain a separate milestone.
+The dashboard is a presentation layer over the existing authenticated, read-only reporting API. From a release detail view, **Download JSON evidence** exports a versioned artifact containing the same bounded normalized evidence. It cannot mutate policy, create outcomes, or execute deployments.
 
 Management reporting is available only with PostgreSQL persistence and uses the existing service-level bearer authentication. Authentication occurs before query validation or database access.
 
@@ -613,6 +614,21 @@ curl \
   --data-urlencode 'repositoryName=the-autonomous-canary' \
   "http://127.0.0.1:3000/management/releases/123e4567-e89b-42d3-a456-426614174000"
 ```
+
+Download the same bounded detail as a versioned JSON attachment:
+
+```bash
+curl \
+  --get \
+  --remote-header-name \
+  --remote-name \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  --data-urlencode 'repositoryOwner=RWAMBA' \
+  --data-urlencode 'repositoryName=the-autonomous-canary' \
+  "http://127.0.0.1:3000/management/releases/123e4567-e89b-42d3-a456-426614174000/evidence-report"
+```
+
+The export uses schema version `canaryguard-evidence-report-v1`, records the export time, and nests the normalized detail under `evidence`. It is served with `Content-Disposition: attachment`, `Cache-Control: no-store`, same-origin resource policy, and MIME-sniffing protection.
 
 The list summary can contain:
 
@@ -1249,7 +1265,7 @@ The current MVP intentionally has these limitations:
 - PR summary comments are not implemented
 - deployment events require PostgreSQL persistence; there is no process-local outcome store
 - rollout publication requires an operator or trusted orchestrator to supply the exact persisted release ID and a new attempt UUID; provider deployment discovery is not implemented
-- the management reporting API and read-only dashboard are available, but downloadable evidence reports are not implemented yet
+- evidence reports export as bounded JSON; signed reports, PDF rendering, and bulk exports are not implemented
 - policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API
 

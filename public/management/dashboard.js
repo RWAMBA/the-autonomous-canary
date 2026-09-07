@@ -34,6 +34,7 @@
     detail: document.querySelector("#release-detail"),
     detailSubtitle: document.querySelector("#detail-subtitle"),
     detailContent: document.querySelector("#detail-content"),
+    downloadEvidence: document.querySelector("#download-evidence"),
     closeDetail: document.querySelector("#close-detail"),
   };
 
@@ -52,6 +53,7 @@
       elements.accessForm.querySelector("button"),
       elements.loadMore,
       elements.clearAccess,
+      elements.downloadEvidence,
     ]) {
       control.disabled = busy;
     }
@@ -164,6 +166,72 @@
     }
 
     return body;
+  }
+
+  async function downloadEvidence() {
+    const releaseId = state.selectedReleaseId;
+
+    if (state.busy || state.apiKey === "" || releaseId === undefined) {
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Preparing bounded evidence report…");
+    const url = new URL(
+      `/management/releases/${encodeURIComponent(releaseId)}/evidence-report`,
+      window.location.origin,
+    );
+    url.search = repositoryParameters().toString();
+    const controller = new AbortController();
+    const timeoutHandle = window.setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${state.apiKey}`,
+        },
+        cache: "no-store",
+        credentials: "same-origin",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 401
+            ? "The service API key was rejected."
+            : "The evidence report could not be exported.",
+        );
+      }
+
+      const objectUrl = URL.createObjectURL(
+        await response.blob(),
+      );
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `canaryguard-evidence-${releaseId}.json`;
+      link.hidden = true;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      setStatus("Downloaded the bounded JSON evidence report.");
+    } catch (error) {
+      setStatus(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "The evidence export timed out."
+          : error instanceof Error
+            ? error.message
+            : "The evidence report could not be exported.",
+        true,
+      );
+    } finally {
+      window.clearTimeout(timeoutHandle);
+      setBusy(false);
+    }
   }
 
   function repositoryParameters() {
@@ -610,6 +678,9 @@
   elements.releaseSearch.addEventListener("input", renderReleaseList);
   elements.riskFilter.addEventListener("change", renderReleaseList);
   elements.closeDetail.addEventListener("click", closeDetail);
+  elements.downloadEvidence.addEventListener("click", () => {
+    void downloadEvidence();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !elements.detail.hidden) {
       closeDetail();

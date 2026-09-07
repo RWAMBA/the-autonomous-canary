@@ -8,6 +8,7 @@ import {
   defaultManagementReleasePageSize,
   parseManagementReleaseDetail,
   parseManagementReleaseDetailQuery,
+  parseManagementEvidenceReport,
   parseManagementReleaseList,
   parseManagementReleaseListQuery,
 } from "../../src/dto/management-report.js";
@@ -203,6 +204,47 @@ test("accepts bounded normalized management responses", () => {
   );
 });
 
+test("accepts a versioned bounded evidence export", () => {
+  const report = parseManagementEvidenceReport({
+    schemaVersion: "canaryguard-evidence-report-v1",
+    exportedAt: "2026-09-07T18:42:07.000Z",
+    evidence: {
+      repository: {
+        owner: "RWAMBA",
+        name: "the-autonomous-canary",
+      },
+      release: {
+        releaseId,
+        headSha: "7938c00196816b1c742c83603b38185b06380bd1",
+        status: "COMPLETED",
+        createdAt: "2026-09-07T18:31:33.000Z",
+        updatedAt: "2026-09-07T18:42:07.000Z",
+      },
+      workflowRuns: {
+        items: [],
+        truncated: false,
+      },
+      deterministicFindings: {
+        items: [],
+        truncated: false,
+      },
+      deploymentAttempts: {
+        items: [],
+        truncated: false,
+      },
+      auditEvents: {
+        items: [],
+        truncated: false,
+      },
+    },
+  });
+
+  assert.equal(
+    report.evidence.release.releaseId,
+    releaseId,
+  );
+});
+
 test("rejects raw or unrestricted fields in management responses", () => {
   assert.throws(
     () => parseManagementReleaseList({
@@ -212,6 +254,51 @@ test("rejects raw or unrestricted fields in management responses", () => {
       },
       releases: [],
       rawDiff: "+secret",
+    }),
+    {
+      name: "ZodError",
+    },
+  );
+
+  assert.throws(
+    () => parseManagementEvidenceReport({
+      schemaVersion:
+        "canaryguard-evidence-report-v1",
+      exportedAt:
+        "2026-09-07T18:42:07.000Z",
+      evidence: {
+        repository: {
+          owner: "RWAMBA",
+          name: "canary",
+        },
+        release: {
+          releaseId,
+          headSha:
+            "7938c00196816b1c742c83603b38185b06380bd1",
+          status: "COMPLETED",
+          createdAt:
+            "2026-09-07T18:31:33.000Z",
+          updatedAt:
+            "2026-09-07T18:42:07.000Z",
+        },
+        workflowRuns: {
+          items: [],
+          truncated: false,
+        },
+        deterministicFindings: {
+          items: [],
+          truncated: false,
+        },
+        deploymentAttempts: {
+          items: [],
+          truncated: false,
+        },
+        auditEvents: {
+          items: [],
+          truncated: false,
+        },
+        rawModelOutput: "secret",
+      },
     }),
     {
       name: "ZodError",

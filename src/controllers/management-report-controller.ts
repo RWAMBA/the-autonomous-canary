@@ -1,11 +1,13 @@
 import {
   parseManagementReleaseDetail,
   parseManagementReleaseDetailQuery,
+  parseManagementEvidenceReport,
   parseManagementReleaseList,
   parseManagementReleaseListQuery,
 } from "../dto/management-report.js";
 import type {
   ManagementReleaseDetailDto,
+  ManagementEvidenceReportDto,
   ManagementReleaseListDto,
 } from "../dto/management-report.js";
 import type {
@@ -20,15 +22,28 @@ export interface ManagementReportController {
     releaseId: string,
     searchParameters: URLSearchParams,
   ): Promise<ManagementReleaseDetailDto>;
+  exportRelease(
+    releaseId: string,
+    searchParameters: URLSearchParams,
+  ): Promise<ManagementEvidenceReportDto>;
+}
+
+export interface ManagementReportControllerOptions {
+  readonly now?: () => Date;
 }
 
 export class DefaultManagementReportController
 implements ManagementReportController {
   private readonly store:
     ManagementReportStore;
+  private readonly now: () => Date;
 
-  constructor(store: ManagementReportStore) {
+  constructor(
+    store: ManagementReportStore,
+    options: ManagementReportControllerOptions = {},
+  ) {
     this.store = store;
+    this.now = options.now ?? (() => new Date());
   }
 
   async listReleases(
@@ -57,5 +72,22 @@ implements ManagementReportController {
     return parseManagementReleaseDetail(
       await this.store.getRelease(query),
     );
+  }
+
+  async exportRelease(
+    releaseId: string,
+    searchParameters: URLSearchParams,
+  ): Promise<ManagementEvidenceReportDto> {
+    const evidence = await this.getRelease(
+      releaseId,
+      searchParameters,
+    );
+
+    return parseManagementEvidenceReport({
+      schemaVersion:
+        "canaryguard-evidence-report-v1",
+      exportedAt: this.now().toISOString(),
+      evidence,
+    });
   }
 }
