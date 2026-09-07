@@ -19,6 +19,9 @@ import type {
   DeploymentEventController,
 } from "./controllers/deployment-event-controller.js";
 import type {
+  ManagementReportController,
+} from "./controllers/management-report-controller.js";
+import type {
   ReviewResponseDto,
 } from "./dto/review-response.js";
 import {
@@ -58,6 +61,8 @@ export interface RequestHandlerOptions {
     GitHubWebhookReceiver;
   readonly deploymentEventController?:
     DeploymentEventController;
+  readonly managementReportController?:
+    ManagementReportController;
   readonly authenticateReviewRequest?:
     ReviewApiKeyAuthenticator;
 }
@@ -243,6 +248,56 @@ async function handleDeploymentEventRequest(
   }
 }
 
+async function handleManagementReportRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  controller:
+    ManagementReportController | undefined,
+  authenticateReviewRequest:
+    ReviewApiKeyAuthenticator,
+  searchParameters: URLSearchParams,
+  releaseId?: string,
+): Promise<void> {
+  try {
+    /*
+     * Authentication precedes query parsing and all
+     * persistence work. Invalid callers cannot use the
+     * reporting database boundary.
+     */
+    authenticateReviewRequest(request);
+
+    if (controller === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code:
+          "MANAGEMENT_REPORT_API_UNAVAILABLE",
+        message:
+          "Management reporting is not configured.",
+        expose: false,
+      });
+    }
+
+    const report = releaseId === undefined
+      ? await controller.listReleases(
+          searchParameters,
+        )
+      : await controller.getRelease(
+          releaseId,
+          searchParameters,
+        );
+
+    response.setHeader(
+      "cache-control",
+      "no-store",
+    );
+
+    sendJson(response, 200, report);
+  } catch (error) {
+    request.resume();
+    sendErrorResponse(response, error);
+  }
+}
+
 export function createRequestHandler(
   release: ReleaseMetadata,
   failureSimulator: FailureSimulator =
@@ -265,6 +320,9 @@ export function createRequestHandler(
   const deploymentEventController =
     options.deploymentEventController;
 
+  const managementReportController =
+    options.managementReportController;
+
   const authenticateReviewRequest =
     options.authenticateReviewRequest
     ?? rejectUnavailableReviewRequest;
@@ -273,10 +331,11 @@ export function createRequestHandler(
     request: IncomingMessage,
     response: ServerResponse,
   ): void => {
-    const pathname = new URL(
+    const requestUrl = new URL(
       request.url ?? "/",
       "http://localhost",
-    ).pathname;
+    );
+    const pathname = requestUrl.pathname;
 
     if (
       request.method === "GET"
@@ -450,6 +509,47 @@ export function createRequestHandler(
         response,
         deploymentEventController,
         authenticateReviewRequest,
+      );
+
+      return;
+    }
+
+    const managementReleaseMatch =
+      /^\/management\/releases\/([^/]+)$/u
+        .exec(pathname);
+
+    if (
+      pathname === "/management/releases"
+      || managementReleaseMatch !== null
+    ) {
+      if (request.method !== "GET") {
+        request.resume();
+
+        response.setHeader(
+          "allow",
+          "GET",
+        );
+
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only GET is supported for management release reports.",
+          }),
+        );
+
+        return;
+      }
+
+      void handleManagementReportRequest(
+        request,
+        response,
+        managementReportController,
+        authenticateReviewRequest,
+        requestUrl.searchParams,
+        managementReleaseMatch?.[1],
       );
 
       return;

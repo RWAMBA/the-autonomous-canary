@@ -33,6 +33,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    version: "003_management_reporting",
+    url: new URL(
+      "../db/migrations/003_management_reporting.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 const pool = createPostgresPool(config);

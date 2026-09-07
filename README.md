@@ -2,7 +2,7 @@
 
 CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a software change is safe to release, identifies possible failure risks, and selects an appropriate deployment strategy.
 
-The current MVP provides secure review and deployment-event APIs, plus optional signed GitHub webhook ingestion, durable release-lifecycle persistence, and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
+The current MVP provides secure review, deployment-event, and management-reporting APIs, plus optional signed GitHub webhook ingestion, durable release-lifecycle persistence, and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
 ## Current MVP status
 
@@ -36,6 +36,7 @@ The MVP:
 - optionally publishes the autonomous rollout's start, measured observation, and final outcome under one explicit release and deployment-attempt identity
 - measures canary request latency and applies exact policy-aligned 5% or 10% weighted routing
 - compares persisted risk predictions with actual outcomes without changing hard-coded policy
+- exposes authenticated repository-scoped release history and bounded lifecycle detail from the normalized PostgreSQL records
 - supports authenticated local, Docker, CI, and Render execution
 
 The optional `OPENAI` provider:
@@ -98,10 +99,12 @@ An HTTP `201` response means the review was created successfully. It does not me
 | `POST` | `/github/reviews` | Collects GitHub Actions evidence and creates a review |
 | `POST` | `/github/webhooks` | Validates signed GitHub events and optionally queues pull-request workflow reviews |
 | `POST` | `/deployment-events` | Records release-correlated deployment starts, observations, and outcomes |
+| `GET` | `/management/releases` | Lists repository-scoped release summaries with keyset pagination |
+| `GET` | `/management/releases/:releaseId` | Returns one bounded release-lifecycle report |
 
 ## Authentication
 
-The review-creation and deployment-event endpoints require a bearer token:
+The review-creation, deployment-event, and management-reporting endpoints require a bearer token:
 
 ```http
 Authorization: Bearer <CANARYGUARD_API_KEY>
@@ -573,6 +576,50 @@ npm run rollout:canary
 
 The supplied traffic percentage must exactly match the persisted policy decision. Clear the correlation values after the rollout and never place production identifiers or the shared API key in source files.
 
+## Query management release reports
+
+Management reporting is available only with PostgreSQL persistence and uses the existing service-level bearer authentication. Authentication occurs before query validation or database access.
+
+List the newest releases for one repository:
+
+```bash
+curl \
+  --get \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  --data-urlencode 'repositoryOwner=RWAMBA' \
+  --data-urlencode 'repositoryName=the-autonomous-canary' \
+  --data-urlencode 'limit=25' \
+  http://127.0.0.1:3000/management/releases
+```
+
+The list endpoint returns at most 100 releases in descending creation order. When another page exists, `nextCursor` contains an opaque, repository-bound keyset cursor. Supply it unchanged as `cursor`; offset pagination is not used.
+
+Retrieve the bounded detail for one release:
+
+```bash
+curl \
+  --get \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  --data-urlencode 'repositoryOwner=RWAMBA' \
+  --data-urlencode 'repositoryName=the-autonomous-canary' \
+  "http://127.0.0.1:3000/management/releases/123e4567-e89b-42d3-a456-426614174000"
+```
+
+The list summary can contain:
+
+- pull-request identity and release status
+- predicted risk and recommended strategy
+- final policy decision and policy-override codes
+- model target, prompt version, latency, token accounting, and estimated cost
+- CI diagnosis category
+- actual release outcome and directional-accuracy result
+
+The detail response adds bounded workflow attempts, deterministic findings, deployment attempts, canary observations, and audit event type, actor classification, and timestamp. Each potentially repeated detail section includes a `truncated` indicator. Canary observations have a per-attempt truncation indicator.
+
+Both endpoints use case-insensitive repository matching, parameterized queries, a repeatable-read read-only transaction, and `Cache-Control: no-store`. A release identifier is resolved only inside the requested repository scope. Unknown parameters, duplicate parameters, malformed cursors, cross-repository cursors, invalid limits, and invalid release UUIDs fail validation.
+
+Reports exclude submitted diffs, raw CI logs, prompts, credentials, GitHub tokens, private keys, raw model output, deployment-event payloads, and unrestricted audit metadata. The reporting API cannot mutate policy, execute a deployment, or create an outcome.
+
 ## Final deployment policy
 
 | Final condition | Decision | Strategy | Initial traffic |
@@ -917,7 +964,7 @@ export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
 npm run db:migrate
 ```
 
-The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies `001_release_lifecycle` and `002_deployment_event_ingestion` and fails closed when either is absent. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
+The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies `001_release_lifecycle`, `002_deployment_event_ingestion`, and `003_management_reporting` and fails closed when any required migration is absent. The reporting migration adds query indexes only; it does not duplicate lifecycle records. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
 
 When PostgreSQL-backed webhook ingestion is enabled, `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS` is also required. This prevents accepted durable deliveries from accumulating without a worker.
 
@@ -1106,6 +1153,7 @@ src/
 ├── controllers/
 │   ├── deployment-event-controller.ts
 │   ├── github-review-controller.ts
+│   ├── management-report-controller.ts
 │   └── review-controller.ts
 ├── dto/
 │   ├── ci-evidence.ts
@@ -1114,6 +1162,7 @@ src/
 │   ├── deployment-event.ts
 │   ├── github-review-request.ts
 │   ├── github-webhook.ts
+│   ├── management-report.ts
 │   ├── review-request.ts
 │   └── review-response.ts
 ├── deployment/
@@ -1155,8 +1204,10 @@ src/
 │   └── send-error-response.ts
 ├── persistence/
 │   ├── durable-automation-config.ts
+│   ├── management-report-store.ts
 │   ├── persistence-config.ts
 │   ├── postgres-deployment-event-store.ts
+│   ├── postgres-management-report-store.ts
 │   ├── postgres-release-lifecycle-store.ts
 │   └── release-lifecycle-store.ts
 ├── migrate-database.ts
@@ -1187,7 +1238,7 @@ The current MVP intentionally has these limitations:
 - PR summary comments are not implemented
 - deployment events require PostgreSQL persistence; there is no process-local outcome store
 - rollout publication requires an operator or trusted orchestrator to supply the exact persisted release ID and a new attempt UUID; provider deployment discovery is not implemented
-- the management and compliance dashboard is not implemented yet
+- the management reporting API is available, but the dashboard UI and downloadable evidence reports are not implemented yet
 - policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API
 

@@ -178,8 +178,32 @@ test("normalizes intentionally local PostgreSQL connections to disabled TLS", ()
   );
 });
 
-test("requires both lifecycle migrations at startup", async () => {
+test("requires all lifecycle and reporting migrations at startup", async () => {
   const completePool = {
+    query: () => Promise.resolve({
+      rows: [
+        {
+          version:
+            "001_release_lifecycle",
+        },
+        {
+          version:
+            "002_deployment_event_ingestion",
+        },
+        {
+          version:
+            "003_management_reporting",
+        },
+      ],
+      rowCount: 3,
+    }),
+  } as unknown as Pool;
+
+  await new PostgresReleaseLifecycleStore(
+    completePool,
+  ).verifySchema();
+
+  const incompletePool = {
     query: () => Promise.resolve({
       rows: [
         {
@@ -195,27 +219,11 @@ test("requires both lifecycle migrations at startup", async () => {
     }),
   } as unknown as Pool;
 
-  await new PostgresReleaseLifecycleStore(
-    completePool,
-  ).verifySchema();
-
-  const incompletePool = {
-    query: () => Promise.resolve({
-      rows: [
-        {
-          version:
-            "001_release_lifecycle",
-        },
-      ],
-      rowCount: 1,
-    }),
-  } as unknown as Pool;
-
   await assert.rejects(
     new PostgresReleaseLifecycleStore(
       incompletePool,
     ).verifySchema(),
-    /Database migration 002_deployment_event_ingestion has not been applied\./u,
+    /Database migration 003_management_reporting has not been applied\./u,
   );
 });
 
