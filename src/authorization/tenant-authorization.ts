@@ -10,7 +10,8 @@ export type TenantRole =
 export type TenantPermission =
   | "REVIEW_WRITE"
   | "DEPLOYMENT_WRITE"
-  | "REPORT_READ";
+  | "REPORT_READ"
+  | "CUSTOMER_LEAD_MANAGE";
 
 export type TenantAuthorizationContext =
   | {

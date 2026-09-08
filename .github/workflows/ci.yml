@@ -253,6 +253,30 @@ jobs:
             http://127.0.0.1:3000/management \
             > .canaryguard-axe-accessibility.json
 
+      - name: Scan customer acquisition accessibility
+        run: |
+          npx --no-install axe \
+            --stdout \
+            --tags wcag2a,wcag2aa \
+            --timeout=60 \
+            --chromedriver-path "${CHROMEWEBDRIVER}/chromedriver" \
+            http://127.0.0.1:3000/ \
+            > .canaryguard-axe-acquisition.json
+          npx --no-install axe \
+            --stdout \
+            --tags wcag2a,wcag2aa \
+            --timeout=60 \
+            --chromedriver-path "${CHROMEWEBDRIVER}/chromedriver" \
+            http://127.0.0.1:3000/security \
+            > .canaryguard-axe-security.json
+          npx --no-install axe \
+            --stdout \
+            --tags wcag2a,wcag2aa \
+            --timeout=60 \
+            --chromedriver-path "${CHROMEWEBDRIVER}/chromedriver" \
+            http://127.0.0.1:3000/architecture \
+            > .canaryguard-axe-architecture.json
+
       - name: Check deployed exposure
         env:
           CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

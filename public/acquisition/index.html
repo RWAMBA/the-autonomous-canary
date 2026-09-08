@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#08110f">
+    <meta name="description" content="CanaryGuard turns CI evidence into deterministic release decisions and managed deployment support.">
+    <title>CanaryGuard — Release decisions backed by evidence</title>
+    <link rel="stylesheet" href="/acquisition.css">
+    <script src="/acquisition.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="CanaryGuard home">
+        <span class="brand-mark" aria-hidden="true">CG</span>
+        <span><strong>CanaryGuard</strong><small>Release intelligence</small></span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#services">Services</a>
+        <a href="#demo">How it works</a>
+        <a href="/security">Security</a>
+        <a href="/architecture">Architecture</a>
+        <a href="#request" class="nav-cta">Request assessment</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Evidence before deployment</p>
+          <h1>Know the release risk.<br><span>Keep policy in control.</span></h1>
+          <p class="lede">
+            CanaryGuard connects pull-request evidence, deterministic policy, and deployment outcomes so teams can ship with a decision trail—not a guess.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#request" data-select-service="RELEASE_RISK_ASSESSMENT">Request a release-risk assessment</a>
+            <a class="button secondary" href="#request" data-select-service="MANAGED_DEPLOYMENT">Request a managed deployment</a>
+          </div>
+          <ul class="trust-list" aria-label="Service boundaries">
+            <li>No source archive uploads</li>
+            <li>No credentials in forms</li>
+            <li>Deterministic policy stays final</li>
+          </ul>
+        </div>
+
+        <div class="decision-card" aria-label="Example CanaryGuard decision">
+          <div class="decision-header">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span>Release review</span>
+            <code>PR #30</code>
+          </div>
+          <div class="risk-row">
+            <div><small>Risk</small><strong>LOW</strong></div>
+            <div class="score"><span class="score-20"></span></div>
+            <b>20/100</b>
+          </div>
+          <div class="signal-list">
+            <div><span>✓</span><p><strong>CI evidence</strong><small>Workflow and container checks passed</small></p></div>
+            <div><span>✓</span><p><strong>Security evidence</strong><small>No blocking normalized findings</small></p></div>
+            <div><span>✓</span><p><strong>Policy authority</strong><small>All required controls satisfied</small></p></div>
+          </div>
+          <div class="decision-footer"><span>Final decision</span><strong>CONTINUE</strong></div>
+        </div>
+      </section>
+
+      <section class="problem-band" aria-labelledby="problem-title">
+        <p class="eyebrow">The commercial problem</p>
+        <h2 id="problem-title">Release evidence exists. The decision is still fragmented.</h2>
+        <div class="problem-grid">
+          <p>CI failures arrive as noisy logs instead of a bounded diagnosis.</p>
+          <p>Security, accessibility, and deployment signals live in separate tools.</p>
+          <p>Approvals and overrides are difficult to reconstruct after the release.</p>
+          <p>Generic AI advice can blur the line between recommendation and authority.</p>
+        </div>
+      </section>
+
+      <section id="services" class="section services" aria-labelledby="services-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Commercial engagements</p><h2 id="services-title">Start with the release problem you have now.</h2></div>
+          <p>Each engagement is manually scoped. Quotations, contracts, and payments use authorized external channels.</p>
+        </div>
+        <div class="service-grid">
+          <article><span>01</span><h3>Release-risk assessment</h3><p>Repository risk, CI failures, missing evidence, policy gaps, canary strategy, and a written audit report.</p><button type="button" data-select-service="RELEASE_RISK_ASSESSMENT">Select assessment</button></article>
+          <article><span>02</span><h3>Managed GitHub App installation</h3><p>Repository access, Check Runs, webhook security, policy setup, and deployment-outcome integration.</p><button type="button" data-select-service="MANAGED_DEPLOYMENT">Select installation</button></article>
+          <article><span>03</span><h3>Release-policy implementation</h3><p>Blocking rules, canary requirements, evidence thresholds, approvals, and audit configuration.</p><button type="button" data-select-service="RELEASE_POLICY_IMPLEMENTATION">Select policy work</button></article>
+          <article><span>04</span><h3>CI failure analysis setup</h3><p>Log-free failure classification, deterministic diagnosis, evidence collection, and review integration.</p><button type="button" data-select-service="CI_FAILURE_ANALYSIS_SETUP">Select CI analysis</button></article>
+          <article><span>05</span><h3>Compliance evidence package</h3><p>Release history, overrides, deployment results, human approvals, model usage, and bounded exports.</p><button type="button" data-select-service="COMPLIANCE_EVIDENCE_PACKAGE">Select evidence package</button></article>
+          <article><span>06</span><h3>Managed release support</h3><p>Policy maintenance, incident review, recurring reports, integration support, and security updates.</p><button type="button" data-select-service="MANAGED_RELEASE_SUPPORT">Select ongoing support</button></article>
+        </div>
+      </section>
+
+      <section id="demo" class="section demo" aria-labelledby="demo-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Product walkthrough</p><h2 id="demo-title">One release, one evidence trail.</h2></div>
+          <a href="/management" class="text-link">Open the live evidence dashboard →</a>
+        </div>
+        <ol class="flow-list">
+          <li><span>01</span><div><h3>Collect</h3><p>Bounded CI, security, accessibility, policy, and deployment evidence is correlated to the reviewed head.</p></div></li>
+          <li><span>02</span><div><h3>Assess</h3><p>Model intelligence explains risk while deterministic rules retain final authority.</p></div></li>
+          <li><span>03</span><div><h3>Deploy</h3><p>The chosen standard or canary strategy is observed against explicit health thresholds.</p></div></li>
+          <li><span>04</span><div><h3>Prove</h3><p>Review, policy decision, overrides, attempts, observations, and outcome remain exportable.</p></div></li>
+        </ol>
+        <div class="demo-lab" aria-labelledby="demo-lab-title">
+          <div>
+            <p class="eyebrow">Interactive decision demo</p>
+            <h3 id="demo-lab-title">Change the evidence. Observe policy authority.</h3>
+            <div class="demo-controls" role="group" aria-label="Release evidence scenario">
+              <button type="button" data-demo-scenario="clean">Clean release</button>
+              <button type="button" data-demo-scenario="ci-failure">Failed tests</button>
+              <button type="button" data-demo-scenario="critical-secret">Critical secret</button>
+            </div>
+          </div>
+          <div class="demo-result" aria-live="polite">
+            <span id="demo-risk">LOW RISK · 20/100</span>
+            <strong id="demo-decision">CONTINUE</strong>
+            <p id="demo-explanation">CI and normalized evidence passed, so deterministic policy permits a standard deployment.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="request" class="section request" aria-labelledby="request-title">
+        <div class="request-copy">
+          <p class="eyebrow">Start a conversation</p>
+          <h2 id="request-title">Describe the release outcome you need.</h2>
+          <p>Submissions are manually reviewed and qualified. A request does not create an account, contract, invoice, or payment obligation.</p>
+          <div class="privacy-card">
+            <strong>Safe intake boundary</strong>
+            <p>Do not submit source code, credentials, secrets, or production logs. We only need business contact details, an optional repository name, and a concise description of the release challenge.</p>
+            <small>Each lead receives a 180-day retention deadline unless an engagement begins or law requires otherwise.</small>
+          </div>
+        </div>
+
+        <form id="lead-form" class="lead-form" novalidate>
+          <div class="field-pair">
+            <label><span>Name</span><input name="contactName" required minlength="2" maxlength="120" autocomplete="name"></label>
+            <label><span>Work email</span><input name="workEmail" type="email" required maxlength="254" autocomplete="email"></label>
+          </div>
+          <label><span>Organization</span><input name="organizationName" required minlength="2" maxlength="200" autocomplete="organization"></label>
+          <label>
+            <span>Service</span>
+            <select name="service" required>
+              <option value="">Select a service</option>
+              <option value="RELEASE_RISK_ASSESSMENT">Release-risk assessment</option>
+              <option value="MANAGED_DEPLOYMENT">Managed GitHub App installation</option>
+              <option value="RELEASE_POLICY_IMPLEMENTATION">Release-policy implementation</option>
+              <option value="CI_FAILURE_ANALYSIS_SETUP">CI failure analysis setup</option>
+              <option value="COMPLIANCE_EVIDENCE_PACKAGE">Compliance evidence package</option>
+              <option value="MANAGED_RELEASE_SUPPORT">Managed release support</option>
+            </select>
+          </label>
+          <fieldset>
+            <legend>Repository identity <small>Optional</small></legend>
+            <div class="field-pair">
+              <label><span>Owner</span><input name="repositoryOwner" maxlength="100" pattern="[A-Za-z0-9_.-]+" autocomplete="off"></label>
+              <label><span>Name</span><input name="repositoryName" maxlength="100" pattern="[A-Za-z0-9_.-]+" autocomplete="off"></label>
+            </div>
+          </fieldset>
+          <label><span>Release challenge</span><textarea name="challenge" required minlength="20" maxlength="2000" rows="6" placeholder="What is preventing a confident release decision?"></textarea><small class="field-note">No source, secrets, credentials, or raw logs.</small></label>
+          <label class="honeypot" aria-hidden="true"><span>Website</span><input name="website" tabindex="-1" autocomplete="off"></label>
+          <label class="consent"><input name="consent" type="checkbox" required><span>I agree that CanaryGuard may use these details to assess and respond to this request.</span></label>
+          <button class="button primary submit" type="submit">Submit request</button>
+          <p id="form-status" class="form-status" role="status" aria-live="polite">No account or payment is created by this form.</p>
+        </form>
+      </section>
+    </main>
+
+    <footer><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">CG</span><strong>CanaryGuard</strong></a><p>Release intelligence with deterministic authority.</p><a href="/management">Management dashboard</a></footer>
+  </body>
+</html>

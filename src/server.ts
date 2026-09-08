@@ -18,6 +18,9 @@ import {
   DefaultManagementReportController,
 } from "./controllers/management-report-controller.js";
 import {
+  DefaultCustomerLeadController,
+} from "./controllers/customer-lead-controller.js";
+import {
   createIntelligenceEngine,
 } from "./engines/intelligence/intelligence-engine-factory.js";
 import {
@@ -64,6 +67,12 @@ import {
   PostgresManagementReportStore,
 } from "./persistence/postgres-management-report-store.js";
 import {
+  PostgresCustomerLeadStore,
+} from "./persistence/postgres-customer-lead-store.js";
+import {
+  HttpQualifiedLeadNotifier,
+} from "./qualified-lead-notifier.js";
+import {
   loadPersistenceConfig,
 } from "./persistence/persistence-config.js";
 import {
@@ -75,6 +84,9 @@ import {
 import {
   allowLegacyTenantResources,
 } from "./authorization/tenant-authorization.js";
+import {
+  loadCustomerAcquisitionConfig,
+} from "./customer-acquisition-config.js";
 
 const defaultPort = 3000;
 const host = "0.0.0.0";
@@ -335,6 +347,39 @@ const managementReportController =
       },
       );
 
+const customerAcquisitionConfig =
+  loadCustomerAcquisitionConfig();
+
+const customerLeadController = (() => {
+  if (customerAcquisitionConfig.provider === "DISABLED") {
+    return undefined;
+  }
+
+  if (postgresPool === undefined) {
+    throw new Error(
+      "CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=POSTGRES requires CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES.",
+    );
+  }
+
+  if (tenantAuthorizationConfig.provider !== "POSTGRES") {
+    throw new Error(
+      "CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=POSTGRES requires CANARYGUARD_AUTHORIZATION_PROVIDER=POSTGRES.",
+    );
+  }
+
+  return new DefaultCustomerLeadController(
+    new PostgresCustomerLeadStore(postgresPool),
+    {
+      adminTenantId:
+        customerAcquisitionConfig.adminTenantId,
+      qualifiedLeadNotifier:
+        new HttpQualifiedLeadNotifier(
+          customerAcquisitionConfig.qualifiedLeadNotification,
+        ),
+    },
+  );
+})();
+
 const requestHandler =
   createRequestHandler(
     loadReleaseMetadata(),
@@ -373,6 +418,11 @@ const requestHandler =
           : {
               managementReportController,
             }
+      ),
+      ...(
+        customerLeadController === undefined
+          ? {}
+          : { customerLeadController }
       ),
     },
   );

@@ -33,7 +33,8 @@
           <h1 id="page-title">Decisions, evidence, and outcomes in one view.</h1>
           <p class="hero-copy">
             Inspect the recorded release path from pull-request review through policy,
-            deployment, and production outcome. The dashboard is read-only.
+            deployment, and production outcome. Release evidence remains read-only.
+            Administrators can also qualify customer requests.
           </p>
         </div>
         <div class="authority-card">
@@ -84,7 +85,10 @@
             <h2 id="dashboard-title">Release overview</h2>
             <p id="repository-label" class="repository-label"></p>
           </div>
-          <button id="clear-access" class="button quiet" type="button">Clear access</button>
+          <div class="detail-actions">
+            <button id="load-leads" class="button secondary" type="button">Customer requests</button>
+            <button id="clear-access" class="button quiet" type="button">Clear access</button>
+          </div>
         </div>
 
         <div class="metric-grid" aria-label="Loaded release summary">
@@ -160,12 +164,24 @@
           </div>
           <div id="detail-content"></div>
         </section>
+
+        <section id="lead-queue" class="detail-panel" aria-labelledby="lead-queue-title" hidden>
+          <div class="detail-header">
+            <div>
+              <p class="eyebrow">Administrator workflow</p>
+              <h2 id="lead-queue-title">Customer request queue</h2>
+              <p class="repository-label">Manually qualify bounded acquisition requests. Contracts and payments remain external.</p>
+            </div>
+            <button id="close-leads" class="icon-button" type="button" aria-label="Close customer request queue">×</button>
+          </div>
+          <div id="lead-list" class="lead-list" aria-live="polite"></div>
+        </section>
       </section>
     </main>
 
     <footer>
       <p>CanaryGuard records normalized evidence. Raw diffs, logs, prompts, credentials, and model output are excluded.</p>
-      <p>Read-only management surface · No policy mutation · No deployment execution</p>
+      <p>Release evidence is read-only · Lead status is ADMIN-only · No deployment execution</p>
     </footer>
   </body>
 </html>

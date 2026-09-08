@@ -22,6 +22,9 @@ import type {
   ManagementReportController,
 } from "./controllers/management-report-controller.js";
 import type {
+  CustomerLeadController,
+} from "./controllers/customer-lead-controller.js";
+import type {
   ReviewResponseDto,
 } from "./dto/review-response.js";
 import type {
@@ -34,6 +37,13 @@ import {
 import type {
   ManagementDashboardAsset,
 } from "./management-dashboard-assets.js";
+import {
+  customerAcquisitionHeaders,
+  getCustomerAcquisitionAsset,
+} from "./customer-acquisition-assets.js";
+import type {
+  CustomerAcquisitionAsset,
+} from "./customer-acquisition-assets.js";
 import {
   createFailureSimulator,
 } from "./failure-simulator.js";
@@ -76,6 +86,8 @@ export interface RequestHandlerOptions {
     DeploymentEventController;
   readonly managementReportController?:
     ManagementReportController;
+  readonly customerLeadController?:
+    CustomerLeadController;
   readonly authenticateReviewRequest?:
     ReviewApiKeyAuthenticator;
 }
@@ -135,6 +147,18 @@ function sendManagementDashboardAsset(
   });
   response.end(asset.body);
 
+}
+
+function sendCustomerAcquisitionAsset(
+  response: ServerResponse,
+  asset: CustomerAcquisitionAsset,
+): void {
+  response.writeHead(200, {
+    ...customerAcquisitionHeaders,
+    "content-length": asset.body.byteLength,
+    "content-type": asset.contentType,
+  });
+  response.end(asset.body);
 }
 
 const rejectUnavailableReviewRequest:
@@ -407,6 +431,75 @@ async function handleManagementEvidenceExportRequest(
   }
 }
 
+async function handleCustomerLeadSubmission(
+  request: IncomingMessage,
+  response: ServerResponse,
+  controller: CustomerLeadController | undefined,
+): Promise<void> {
+  try {
+    if (controller === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code: "CUSTOMER_ACQUISITION_UNAVAILABLE",
+        message: "Customer acquisition is not configured.",
+        expose: false,
+      });
+    }
+
+    const receipt = await controller.submitLead(
+      await readJsonBody(request, 16 * 1_024),
+    );
+    response.setHeader("cache-control", "no-store");
+    sendJson(response, 202, receipt);
+  } catch (error) {
+    request.resume();
+    sendErrorResponse(response, error);
+  }
+}
+
+async function handleCustomerLeadManagement(
+  request: IncomingMessage,
+  response: ServerResponse,
+  controller: CustomerLeadController | undefined,
+  authenticateReviewRequest: ReviewApiKeyAuthenticator,
+  searchParameters: URLSearchParams,
+  leadId?: string,
+): Promise<void> {
+  try {
+    const authorizationContext =
+      await authenticateReviewRequest(
+        request,
+        "CUSTOMER_LEAD_MANAGE",
+      );
+
+    if (controller === undefined) {
+      throw new HttpError({
+        statusCode: 503,
+        code: "CUSTOMER_ACQUISITION_UNAVAILABLE",
+        message: "Customer acquisition is not configured.",
+        expose: false,
+      });
+    }
+
+    const result = leadId === undefined
+      ? await controller.listLeads(
+          searchParameters,
+          authorizationContext,
+        )
+      : await controller.transitionLead(
+          leadId,
+          await readJsonBody(request, 4 * 1_024),
+          authorizationContext,
+        );
+
+    response.setHeader("cache-control", "no-store");
+    sendJson(response, 200, result);
+  } catch (error) {
+    request.resume();
+    sendErrorResponse(response, error);
+  }
+}
+
 export function createRequestHandler(
   release: ReleaseMetadata,
   failureSimulator: FailureSimulator =
@@ -432,6 +525,9 @@ export function createRequestHandler(
   const managementReportController =
     options.managementReportController;
 
+  const customerLeadController =
+    options.customerLeadController;
+
   const authenticateReviewRequest =
     options.authenticateReviewRequest
     ?? rejectUnavailableReviewRequest;
@@ -445,6 +541,32 @@ export function createRequestHandler(
       "http://localhost",
     );
     const pathname = requestUrl.pathname;
+
+    const customerAcquisitionAsset =
+      getCustomerAcquisitionAsset(pathname);
+
+    if (customerAcquisitionAsset !== undefined) {
+      if (request.method !== "GET") {
+        request.resume();
+        response.setHeader("allow", "GET");
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only GET is supported for public acquisition assets.",
+          }),
+        );
+        return;
+      }
+
+      sendCustomerAcquisitionAsset(
+        response,
+        customerAcquisitionAsset,
+      );
+      return;
+    }
 
     const managementDashboardAsset =
       getManagementDashboardAsset(pathname);
@@ -649,6 +771,67 @@ export function createRequestHandler(
         authenticateReviewRequest,
       );
 
+      return;
+    }
+
+    if (pathname === "/customer-leads") {
+      if (request.method !== "POST") {
+        request.resume();
+        response.setHeader("allow", "POST");
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              "Only POST is supported for /customer-leads.",
+          }),
+        );
+        return;
+      }
+
+      void handleCustomerLeadSubmission(
+        request,
+        response,
+        customerLeadController,
+      );
+      return;
+    }
+
+    const customerLeadManagementMatch =
+      /^\/management\/customer-leads\/([^/]+)$/u
+        .exec(pathname);
+
+    if (
+      pathname === "/management/customer-leads"
+      || customerLeadManagementMatch !== null
+    ) {
+      const leadId = customerLeadManagementMatch?.[1];
+      const expectedMethod = leadId === undefined ? "GET" : "PATCH";
+
+      if (request.method !== expectedMethod) {
+        request.resume();
+        response.setHeader("allow", expectedMethod);
+        sendErrorResponse(
+          response,
+          new HttpError({
+            statusCode: 405,
+            code: "METHOD_NOT_ALLOWED",
+            message:
+              `Only ${expectedMethod} is supported for this customer-lead resource.`,
+          }),
+        );
+        return;
+      }
+
+      void handleCustomerLeadManagement(
+        request,
+        response,
+        customerLeadController,
+        authenticateReviewRequest,
+        requestUrl.searchParams,
+        leadId,
+      );
       return;
     }
 

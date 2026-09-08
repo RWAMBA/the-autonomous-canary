@@ -72,6 +72,14 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    version:
+      "008_direct_customer_acquisition",
+    url: new URL(
+      "../db/migrations/008_direct_customer_acquisition.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 const pool = createPostgresPool(config);

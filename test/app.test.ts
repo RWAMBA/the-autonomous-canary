@@ -276,6 +276,39 @@ const managementReportController = {
   },
 };
 
+let customerLeadSubmissions = 0;
+let customerLeadManagementCalls = 0;
+
+const customerLeadController = {
+  submitLead: () => {
+    customerLeadSubmissions += 1;
+    return Promise.resolve({
+      leadId:
+        "523e4567-e89b-42d3-a456-426614174000",
+      status: "RECEIVED" as const,
+      submittedAt:
+        "2026-09-08T20:00:00.000Z",
+    });
+  },
+  listLeads: () => {
+    customerLeadManagementCalls += 1;
+    return Promise.resolve({ leads: [] });
+  },
+  transitionLead: (
+    leadId: string,
+    _input: unknown,
+    _context: TenantAuthorizationContext,
+  ) => {
+    customerLeadManagementCalls += 1;
+    return Promise.resolve({
+      leadId,
+      status: "QUALIFIED" as const,
+      updatedAt:
+        "2026-09-08T20:05:00.000Z",
+    });
+  },
+};
+
 function createGitHubWebhookReceiver() {
   const config = loadGitHubWebhookConfig({
     [githubWebhookProviderEnvironmentVariable]:
@@ -380,6 +413,7 @@ const server = createServer(
         createGitHubWebhookReceiver(),
       deploymentEventController,
       managementReportController,
+      customerLeadController,
       authenticateReviewRequest:
         createReviewApiKeyAuthenticator(
           reviewApiKey,
@@ -865,6 +899,102 @@ test("GET /health returns the service health", async () => {
       status: "ok",
     },
   );
+});
+
+test("GET / serves the public acquisition page", async () => {
+  const response = await fetch(`${baseUrl}/`);
+
+  assert.equal(response.status, 200);
+  assert.match(
+    response.headers.get("content-security-policy") ?? "",
+    /default-src 'none'/u,
+  );
+  assert.match(
+    await response.text(),
+    /Request a release-risk assessment/u,
+  );
+});
+
+test("GET serves the public security and architecture disclosures", async () => {
+  const securityResponse = await fetch(`${baseUrl}/security`);
+  const architectureResponse = await fetch(`${baseUrl}/architecture`);
+
+  assert.equal(securityResponse.status, 200);
+  assert.match(await securityResponse.text(), /Security and privacy/u);
+  assert.equal(architectureResponse.status, 200);
+  assert.match(await architectureResponse.text(), /CanaryGuard architecture/u);
+});
+
+test("POST /customer-leads accepts a bounded public request without authentication", async () => {
+  const callsBefore = customerLeadSubmissions;
+  const response = await fetch(`${baseUrl}/customer-leads`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(customerLeadSubmissions, callsBefore + 1);
+  assert.deepEqual(await response.json(), {
+    leadId:
+      "523e4567-e89b-42d3-a456-426614174000",
+    status: "RECEIVED",
+    submittedAt:
+      "2026-09-08T20:00:00.000Z",
+  });
+});
+
+test("customer-lead management authenticates with the dedicated permission", async () => {
+  const permissions: TenantPermission[] = [];
+  const handler = createRequestHandler(
+    {
+      channel: "canary",
+      commitSha: "abc123",
+      version: "1.2.3",
+    },
+    createFailureSimulator(0),
+    {
+      customerLeadController,
+      authenticateReviewRequest: async (_request, permission) => {
+        permissions.push(permission);
+        return { provider: "LEGACY", role: "ADMIN" };
+      },
+    },
+  );
+  const managementServer = createServer(handler);
+
+  await new Promise<void>((resolve) => {
+    managementServer.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    const address = managementServer.address();
+    assert.ok(address && typeof address !== "string");
+    const url = `http://127.0.0.1:${address.port}`;
+    const listResponse = await fetch(`${url}/management/customer-leads`);
+    const transitionResponse = await fetch(
+      `${url}/management/customer-leads/523e4567-e89b-42d3-a456-426614174000`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "QUALIFIED" }),
+      },
+    );
+
+    assert.equal(listResponse.status, 200);
+    assert.equal(transitionResponse.status, 200);
+    assert.deepEqual(permissions, [
+      "CUSTOMER_LEAD_MANAGE",
+      "CUSTOMER_LEAD_MANAGE",
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      managementServer.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  }
 });
 
 test("GET /version returns the release identity", async () => {
