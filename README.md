@@ -1242,6 +1242,65 @@ DATABASE_SSL_MODE=REQUIRE
 
 Run `npm run db:migrate` from a protected administrative environment with the same database configuration, then deploy or restart the service. Startup fails closed if the migration is missing. With PostgreSQL enabled, replay protection, pull-request/head correlation, task leasing, retry state, normalized reviews, and Check Run identifiers survive process restarts and are shared across service instances.
 
+## Direct customer acquisition
+
+Phase 8 adds one bounded acquisition path without turning CanaryGuard into a billing or contract system. The public landing page at `/` explains the commercial release problem, shows the release-decision flow, links to the live evidence dashboard, and links to dedicated `/security` and `/architecture` disclosures. It offers these manually scoped services:
+
+- release-readiness assessment
+- managed GitHub App installation and deployment integration
+- release-policy implementation
+- CI failure analysis setup
+- compliance evidence configuration
+- ongoing managed release support
+
+The two primary calls to action are **Request a release-risk assessment** and **Request a managed deployment**. Both use the same validated `POST /customer-leads` boundary. A submission collects only a name, work email, organization, service, optional repository owner/name, a bounded challenge description, consent, and a client-generated idempotency token. The endpoint rejects credential-shaped content. It never asks for or stores source archives, source code, API keys, private keys, production passwords, raw logs, deployment configuration, contracts, quotations, invoices, or payment details.
+
+Customer-lead idempotency tokens and payload correlation values are stored only as SHA-256 digests. Each record receives a 180-day retention deadline; operators remain responsible for deleting or lawfully extending records at that deadline. A hidden honeypot field discards basic automated submissions without revealing the filter. These controls reduce accidental duplication and unsafe intake; they are not a substitute for an edge WAF or distributed abuse controls.
+
+After authentication with an `ADMIN` credential belonging to the single tenant configured by `CANARYGUARD_CUSTOMER_ACQUISITION_ADMIN_TENANT_ID`, an operator can load the acquisition queue in `/management` or call:
+
+```bash
+curl --fail --silent --show-error \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  'https://the-autonomous-canary.onrender.com/management/customer-leads?status=NEW&limit=25'
+```
+
+Qualification is an explicit state machine: `NEW` may become `QUALIFIED` or `CLOSED`; `QUALIFIED` may become `PROPOSAL_SENT` or `CLOSED`; `PROPOSAL_SENT` may become `ENGAGED` or `CLOSED`; and `ENGAGED` may become `CLOSED`. Closed records cannot be reopened through the API. Transitions record bounded actor identifiers but no free-form operator notes. `AUTOMATION` and `VIEWER` credentials cannot read or mutate customer leads.
+
+Moving a request to `QUALIFIED` sends a bounded email request to the protected relay configured by `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_URL`. The relay receives only the configured recipient, a fixed subject, the lead UUID, qualification time, and an idempotency key; it does not receive contact details or the challenge text. `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_API_KEY` stays in the runtime environment. The relay must honor the idempotency key so an operator can safely repeat the qualification request after an inconclusive delivery response.
+
+Example qualification request:
+
+```bash
+curl --fail --silent --show-error \
+  --request PATCH \
+  --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
+  --header 'Content-Type: application/json' \
+  --data '{"status":"QUALIFIED"}' \
+  'https://the-autonomous-canary.onrender.com/management/customer-leads/<lead-id>'
+```
+
+The remaining commercial flow is deliberately manual: qualify the request, agree a written scope and quotation, accept payment through an authorized external method, and provision tenant/repository access with the existing operator command. A lead submission does not create an account, contract, invoice, subscription, payment obligation, tenant, credential, or repository grant.
+
+### Phase 8 production activation
+
+Migration `008_direct_customer_acquisition` must be applied before enabling lead persistence. Use a staged deployment:
+
+1. Keep `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED` and apply migration 008 from a protected administrative environment.
+2. Deploy the new revision and verify `/`, `/health`, `/version`, and the existing review/reporting workflows. Public submissions correctly return an unavailable response while disabled.
+3. Confirm `CANARYGUARD_AUTHORIZATION_PROVIDER=POSTGRES`, set `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=POSTGRES`, set `CANARYGUARD_CUSTOMER_ACQUISITION_ADMIN_TENANT_ID` to the platform operator tenant UUID, configure the qualified-lead notification URL, API key, and recipient, and redeploy the same revision. Startup fails closed if PostgreSQL tenant authorization or persistence is unavailable.
+4. Submit a non-sensitive test lead, verify it appears for the configured tenant's `ADMIN` credential, qualify it through the allowed state sequence, verify the idempotent email notification, and verify another tenant's `ADMIN`, `AUTOMATION`, `VIEWER`, and unauthenticated management requests are rejected.
+5. Confirm the landing page and form with keyboard navigation, mobile layout, and the automated accessibility check before publishing the acquisition URL.
+
+Do not accept customer requests during the migration/deployment interval. Migration 008 is additive to release data, but its rollback is intentionally destructive to acquisition data. Roll back in this exact order:
+
+1. Stop public intake and export any leads that must be retained through an approved private channel.
+2. Set `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED`, deploy, and drain every migration-008-capable process.
+3. Run `db/rollbacks/008_direct_customer_acquisition.sql` from the protected administrative environment.
+4. Redeploy revision `0a3277ca095cf9628ffd68993e6840f965d3d7ee`.
+
+The rollback drops customer lead and status-event tables and restores the previous authorization-permission constraint; it does not modify release records.
+
 Do not store production secrets in GitHub source files, workflow definitions, Docker configuration, build arguments, or container layers.
 
 Render supplies `RENDER_GIT_COMMIT`, which the application uses to report the exact deployed revision through `/version`.

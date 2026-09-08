@@ -10,6 +10,7 @@
     releases: [],
     selectedReleaseId: undefined,
     busy: false,
+    leads: [],
   };
 
   const elements = {
@@ -36,6 +37,10 @@
     detailContent: document.querySelector("#detail-content"),
     downloadEvidence: document.querySelector("#download-evidence"),
     closeDetail: document.querySelector("#close-detail"),
+    loadLeads: document.querySelector("#load-leads"),
+    leadQueue: document.querySelector("#lead-queue"),
+    leadList: document.querySelector("#lead-list"),
+    closeLeads: document.querySelector("#close-leads"),
   };
 
   if (Object.values(elements).some((element) => element === null)) {
@@ -54,6 +59,7 @@
       elements.loadMore,
       elements.clearAccess,
       elements.downloadEvidence,
+      elements.loadLeads,
     ]) {
       control.disabled = busy;
     }
@@ -166,6 +172,143 @@
     }
 
     return body;
+  }
+
+  async function requestLeadTransition(leadId, nextStatus) {
+    const controller = new AbortController();
+    const timeoutHandle = window.setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const response = await fetch(
+        `/management/customer-leads/${encodeURIComponent(leadId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${state.apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ status: nextStatus }),
+          cache: "no-store",
+          credentials: "same-origin",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          signal: controller.signal,
+        },
+      );
+      const body = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 403
+            ? "An ADMIN credential is required to qualify customer requests."
+            : body?.error?.message ?? "The lead status could not be updated.",
+        );
+      }
+
+      return body;
+    } finally {
+      window.clearTimeout(timeoutHandle);
+    }
+  }
+
+  function nextLeadStatuses(status) {
+    switch (status) {
+      case "NEW": return ["QUALIFIED", "CLOSED"];
+      case "QUALIFIED": return ["PROPOSAL_SENT", "CLOSED"];
+      case "PROPOSAL_SENT": return ["ENGAGED", "CLOSED"];
+      case "ENGAGED": return ["CLOSED"];
+      default: return [];
+    }
+  }
+
+  function createLeadCard(lead) {
+    const card = document.createElement("article");
+    card.className = "lead-card";
+    const heading = document.createElement("div");
+    heading.className = "lead-heading";
+    heading.append(
+      textElement("h3", lead.organizationName),
+      createPill(lead.status),
+    );
+    const actions = document.createElement("div");
+    actions.className = "lead-actions";
+
+    for (const nextStatus of nextLeadStatuses(lead.status)) {
+      const button = textElement(
+        "button",
+        nextStatus.replaceAll("_", " "),
+        `button ${nextStatus === "CLOSED" ? "quiet" : "secondary"}`,
+      );
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        if (state.busy) return;
+        setBusy(true);
+        setStatus(`Updating ${lead.organizationName}…`);
+        try {
+          await requestLeadTransition(lead.leadId, nextStatus);
+          await loadCustomerLeads();
+        } catch (error) {
+          setStatus(
+            error instanceof Error
+              ? error.message
+              : "The lead status could not be updated.",
+            true,
+          );
+        } finally {
+          setBusy(false);
+        }
+      });
+      actions.append(button);
+    }
+
+    card.append(
+      heading,
+      textElement(
+        "p",
+        `${lead.contactName} · ${lead.workEmail}`,
+        "repository-label",
+      ),
+      textElement("strong", String(lead.service).replaceAll("_", " ")),
+      textElement("p", lead.challenge),
+      textElement(
+        "small",
+        lead.repositoryOwner === undefined
+          ? "Repository not supplied"
+          : `${lead.repositoryOwner}/${lead.repositoryName}`,
+        "meta",
+      ),
+      actions,
+    );
+    return card;
+  }
+
+  function renderCustomerLeads() {
+    elements.leadList.replaceChildren(
+      ...state.leads.map(createLeadCard),
+    );
+    if (state.leads.length === 0) {
+      elements.leadList.append(
+        textElement(
+          "p",
+          "No customer requests are currently queued.",
+          "empty-state",
+        ),
+      );
+    }
+  }
+
+  async function loadCustomerLeads() {
+    const report = await requestReport(
+      "/management/customer-leads",
+      new URLSearchParams({ limit: "100" }),
+    );
+    state.leads = report.leads;
+    elements.leadQueue.hidden = false;
+    renderCustomerLeads();
+    setStatus(
+      `Loaded ${state.leads.length} customer request${state.leads.length === 1 ? "" : "s"}.`,
+    );
   }
 
   async function downloadEvidence() {
@@ -636,9 +779,12 @@
 
   function clearDashboardData() {
     state.releases = [];
+    state.leads = [];
     state.nextCursor = undefined;
     elements.dashboard.hidden = true;
     elements.releaseList.replaceChildren();
+    elements.leadList.replaceChildren();
+    elements.leadQueue.hidden = true;
     closeDetail();
     renderMetrics();
   }
@@ -678,12 +824,33 @@
   elements.releaseSearch.addEventListener("input", renderReleaseList);
   elements.riskFilter.addEventListener("change", renderReleaseList);
   elements.closeDetail.addEventListener("click", closeDetail);
+  elements.loadLeads.addEventListener("click", async () => {
+    if (state.busy || state.apiKey === "") return;
+    setBusy(true);
+    setStatus("Loading customer requests…");
+    try {
+      await loadCustomerLeads();
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "Customer requests could not be loaded.",
+        true,
+      );
+    } finally {
+      setBusy(false);
+    }
+  });
+  elements.closeLeads.addEventListener("click", () => {
+    elements.leadQueue.hidden = true;
+  });
   elements.downloadEvidence.addEventListener("click", () => {
     void downloadEvidence();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !elements.detail.hidden) {
-      closeDetail();
+    if (event.key === "Escape") {
+      if (!elements.detail.hidden) closeDetail();
+      if (!elements.leadQueue.hidden) elements.leadQueue.hidden = true;
     }
   });
   window.addEventListener("pagehide", () => {

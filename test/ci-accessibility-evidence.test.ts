@@ -81,6 +81,10 @@ test("publishes only bounded normalized Axe accessibility evidence", async () =>
   );
   assert.match(
     workflow,
+    /name: Scan customer acquisition accessibility[\s\S]+http:\/\/127\.0\.0\.1:3000\/[\s\S]+\.canaryguard-axe-acquisition\.json[\s\S]+http:\/\/127\.0\.0\.1:3000\/security[\s\S]+\.canaryguard-axe-security\.json[\s\S]+http:\/\/127\.0\.0\.1:3000\/architecture[\s\S]+\.canaryguard-axe-architecture\.json/u,
+  );
+  assert.match(
+    workflow,
     /name: canaryguard-axe-accessibility-v1/u,
   );
   assert.match(

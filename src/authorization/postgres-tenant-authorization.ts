@@ -36,6 +36,7 @@ const rolePermissions: Readonly<
     "REVIEW_WRITE",
     "DEPLOYMENT_WRITE",
     "REPORT_READ",
+    "CUSTOMER_LEAD_MANAGE",
   ]),
   AUTOMATION: new Set([
     "REVIEW_WRITE",

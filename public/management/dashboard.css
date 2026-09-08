@@ -635,3 +635,39 @@ footer p {
     transition-duration: .01ms !important;
   }
 }
+
+.lead-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.lead-card {
+  display: grid;
+  gap: .75rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: .7rem;
+  background: var(--surface);
+}
+
+.lead-card p,
+.lead-card h3 {
+  margin: 0;
+}
+
+.lead-heading,
+.lead-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .75rem;
+}
+
+.lead-heading {
+  justify-content: space-between;
+}
+
+.lead-actions {
+  padding-top: .5rem;
+  border-top: 1px solid var(--line);
+}

@@ -182,6 +182,35 @@ test("allows automation credentials to write reviews and deployments", async () 
   }
 });
 
+test("reserves customer lead qualification for administrators", async () => {
+  const adminAuthorization = new PostgresTenantAuthorization(
+    createPool(true, "ADMIN"),
+  );
+  const automationAuthorization = new PostgresTenantAuthorization(
+    createPool(true, "AUTOMATION"),
+  );
+
+  assert.equal(
+    (
+      await adminAuthorization.authenticateRequest(
+        requestWithBearer(apiKey),
+        "CUSTOMER_LEAD_MANAGE",
+      )
+    ).role,
+    "ADMIN",
+  );
+  await assert.rejects(
+    automationAuthorization.authenticateRequest(
+      requestWithBearer(apiKey),
+      "CUSTOMER_LEAD_MANAGE",
+    ),
+    (error: unknown) =>
+      error instanceof HttpError
+      && error.statusCode === 403
+      && error.code === "FORBIDDEN",
+  );
+});
+
 test("conceals releases outside the authenticated tenant", async () => {
   const pool = {
     query: (text: string) => {

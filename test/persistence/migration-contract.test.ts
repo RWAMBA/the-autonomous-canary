@@ -57,6 +57,16 @@ const completeEvidenceRollbackUrl = new URL(
   import.meta.url,
 );
 
+const customerAcquisitionMigrationUrl = new URL(
+  "../../db/migrations/008_direct_customer_acquisition.sql",
+  import.meta.url,
+);
+
+const customerAcquisitionRollbackUrl = new URL(
+  "../../db/rollbacks/008_direct_customer_acquisition.sql",
+  import.meta.url,
+);
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -373,4 +383,31 @@ test("prepares a finding-preserving unified Phase 7 rollback", async () => {
     /OR \(\s+evidence_source IS NOT NULL[\s\S]+evidence_category IS NOT NULL/u,
   );
   assert.doesNotMatch(rollback, /DELETE FROM deterministic_findings/iu);
+});
+
+test("adds bounded customer acquisition and qualification records", async () => {
+  const migration = await readFile(customerAcquisitionMigrationUrl, "utf8");
+
+  for (const table of ["customer_leads", "customer_lead_status_events"]) {
+    assert.match(migration, new RegExp(`CREATE TABLE ${table}`, "u"));
+  }
+  assert.match(migration, /submission_token_sha256 char\(64\)/u);
+  assert.match(migration, /payload_sha256 char\(64\)/u);
+  assert.match(migration, /retention_expires_at timestamptz NOT NULL/u);
+  assert.match(migration, /CUSTOMER_LEAD_MANAGE/u);
+  assert.match(migration, /008_direct_customer_acquisition/u);
+  assert.doesNotMatch(
+    migration,
+    /api_key|private_key|source_(?:code|archive)|production_(?:password|secret)|raw_log/iu,
+  );
+});
+
+test("provides an explicit destructive rollback for acquisition PII", async () => {
+  const rollback = await readFile(customerAcquisitionRollbackUrl, "utf8");
+
+  assert.match(rollback, /DROP TABLE customer_lead_status_events/u);
+  assert.match(rollback, /DROP TABLE customer_leads/u);
+  assert.match(rollback, /DELETE FROM schema_migrations/u);
+  assert.match(rollback, /008_direct_customer_acquisition/u);
+  assert.doesNotMatch(rollback, /CUSTOMER_LEAD_MANAGE[\s\S]+CUSTOMER_LEAD_MANAGE/u);
 });
