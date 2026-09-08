@@ -56,6 +56,14 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    version:
+      "006_tenant_authorization_foundation",
+    url: new URL(
+      "../db/migrations/006_tenant_authorization_foundation.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 const pool = createPostgresPool(config);

@@ -58,6 +58,9 @@ import {
 import type {
   ReleaseMetadata,
 } from "./release.js";
+import type {
+  ReviewPersistenceContext,
+} from "./persistence/release-lifecycle-store.js";
 
 const serviceName =
   "the-autonomous-canary";
@@ -80,6 +83,7 @@ export interface RequestHandlerOptions {
 interface ReviewCreator {
   createReview(
     input: unknown,
+    context?: ReviewPersistenceContext,
   ): Promise<ReviewResponseDto>;
 }
 
@@ -134,7 +138,7 @@ function sendManagementDashboardAsset(
 }
 
 const rejectUnavailableReviewRequest:
-  ReviewApiKeyAuthenticator = () => {
+  ReviewApiKeyAuthenticator = async () => {
     throw new HttpError({
       statusCode: 503,
       code: "REVIEW_API_UNAVAILABLE",
@@ -161,7 +165,11 @@ async function handleReviewRequest(
      * Unauthorized callers cannot consume validation,
      * sanitization, policy, or intelligence resources.
      */
-    authenticateReviewRequest(request);
+    const authorizationContext =
+      await authenticateReviewRequest(
+        request,
+        "REVIEW_WRITE",
+      );
 
     if (reviewController === undefined) {
       throw new HttpError({
@@ -179,6 +187,7 @@ async function handleReviewRequest(
     const review =
       await reviewController.createReview(
         input,
+        { authorizationContext },
       );
 
     response.setHeader(
@@ -260,7 +269,11 @@ async function handleDeploymentEventRequest(
     ReviewApiKeyAuthenticator,
 ): Promise<void> {
   try {
-    authenticateReviewRequest(request);
+    const authorizationContext =
+      await authenticateReviewRequest(
+        request,
+        "DEPLOYMENT_WRITE",
+      );
 
     if (controller === undefined) {
       throw new HttpError({
@@ -275,7 +288,10 @@ async function handleDeploymentEventRequest(
 
     const input = await readJsonBody(request);
     const receipt =
-      await controller.recordEvent(input);
+      await controller.recordEvent(
+        input,
+        authorizationContext,
+      );
 
     response.setHeader(
       "cache-control",
@@ -309,7 +325,11 @@ async function handleManagementReportRequest(
      * persistence work. Invalid callers cannot use the
      * reporting database boundary.
      */
-    authenticateReviewRequest(request);
+    const authorizationContext =
+      await authenticateReviewRequest(
+        request,
+        "REPORT_READ",
+      );
 
     if (controller === undefined) {
       throw new HttpError({
@@ -325,10 +345,12 @@ async function handleManagementReportRequest(
     const report = releaseId === undefined
       ? await controller.listReleases(
           searchParameters,
+          authorizationContext,
         )
       : await controller.getRelease(
           releaseId,
           searchParameters,
+          authorizationContext,
         );
 
     response.setHeader(
@@ -354,7 +376,11 @@ async function handleManagementEvidenceExportRequest(
   searchParameters: URLSearchParams,
 ): Promise<void> {
   try {
-    authenticateReviewRequest(request);
+    const authorizationContext =
+      await authenticateReviewRequest(
+        request,
+        "REPORT_READ",
+      );
 
     if (controller === undefined) {
       throw new HttpError({
@@ -372,6 +398,7 @@ async function handleManagementEvidenceExportRequest(
       await controller.exportRelease(
         releaseId,
         searchParameters,
+        authorizationContext,
       ),
     );
   } catch (error) {
