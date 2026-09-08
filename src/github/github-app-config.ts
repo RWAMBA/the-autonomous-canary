@@ -17,6 +17,9 @@ export const githubAppPrivateKeyEnvironmentVariable =
 export const githubApiTimeoutEnvironmentVariable =
   "GITHUB_API_TIMEOUT_MS";
 
+export const axeEvidenceProviderEnvironmentVariable =
+  "CANARYGUARD_AXE_EVIDENCE_PROVIDER";
+
 export const defaultGitHubApiTimeoutMs =
   10_000;
 
@@ -41,6 +44,8 @@ export interface GitHubAppConfig {
   readonly clientId: string;
   readonly privateKey: KeyObject;
   readonly timeoutMs: number;
+  readonly axeEvidenceProvider:
+    "DISABLED" | "AXE";
 }
 
 export type GitHubConfig =
@@ -218,6 +223,21 @@ export function loadGitHubConfig(
     );
   }
 
+  const axeEvidenceProvider =
+    environment[
+      axeEvidenceProviderEnvironmentVariable
+    ]
+    ?? "DISABLED";
+
+  if (
+    axeEvidenceProvider !== "DISABLED"
+    && axeEvidenceProvider !== "AXE"
+  ) {
+    throw new Error(
+      `${axeEvidenceProviderEnvironmentVariable} must be DISABLED or AXE.`,
+    );
+  }
+
   return Object.freeze({
     provider: "APP",
     clientId: readClientId(
@@ -233,5 +253,6 @@ export function loadGitHubConfig(
       minimumGitHubApiTimeoutMs,
       maximumGitHubApiTimeoutMs,
     ),
+    axeEvidenceProvider,
   });
 }

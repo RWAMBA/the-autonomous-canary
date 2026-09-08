@@ -338,7 +338,13 @@ const server =
     requestHandler,
   );
 
-durableWorkflowRunWorker?.start();
+if (
+  githubConfig.provider === "APP"
+  && githubConfig.axeEvidenceProvider
+    === "AXE"
+) {
+  durableWorkflowRunWorker?.start();
+}
 
 server.listen(
   port,

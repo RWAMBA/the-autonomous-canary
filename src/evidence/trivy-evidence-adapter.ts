@@ -9,7 +9,7 @@ import {
   trivyEvidenceSchemaVersion,
 } from "../dto/external-evidence.js";
 import type {
-  ExternalEvidenceCategory,
+  TrivyEvidenceCategory,
   TrivyEvidenceFindingDto,
   TrivyEvidenceReportDto,
 } from "../dto/external-evidence.js";
@@ -104,7 +104,7 @@ function boundedText(
 function vulnerabilityCategory(
   scanTarget:
     TrivyNormalizationContext["scanTarget"],
-): ExternalEvidenceCategory {
+): TrivyEvidenceCategory {
   return scanTarget === "FILESYSTEM"
     ? "DEPENDENCY_VULNERABILITY"
     : "CONTAINER_VULNERABILITY";

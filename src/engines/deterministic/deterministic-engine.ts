@@ -8,7 +8,10 @@ import type {
   ReviewRiskLevel,
 } from "../../dto/review-response.js";
 import type {
-  ExternalEvidenceCategory,
+  AxeEvidenceFindingDto,
+  AxeEvidenceReportDto,
+  ExternalEvidenceAttribution,
+  ExternalEvidenceReportDto,
   TrivyEvidenceFindingDto,
   TrivyEvidenceReportDto,
 } from "../../dto/external-evidence.js";
@@ -27,14 +30,34 @@ export interface DeterministicFinding {
   readonly explanation: string;
   readonly file?: string;
   readonly blocking: boolean;
-  readonly attribution?: {
-    readonly source: "TRIVY";
-    readonly sourceVersion: string;
-    readonly identifier: string;
-    readonly category:
-      ExternalEvidenceCategory;
-    readonly generatedAt: string;
-  };
+  readonly attribution?:
+    ExternalEvidenceAttribution;
+}
+
+function createAxeFinding(
+  report: AxeEvidenceReportDto,
+  finding: AxeEvidenceFindingDto,
+): DeterministicFinding {
+  return Object.freeze({
+    code:
+      `AXE_${finding.category}_${finding.severity}`,
+    source: "DETERMINISTIC",
+    severity: finding.severity,
+    title: finding.title,
+    explanation:
+      `Finding ${finding.identifier} was normalized by Axe adapter ${report.adapterVersion} from axe-core ${report.scannerVersion}.`,
+    file: finding.pagePath,
+    blocking:
+      finding.severity === "CRITICAL",
+    attribution: Object.freeze({
+      source: report.source,
+      sourceVersion:
+        report.adapterVersion,
+      identifier: finding.identifier,
+      category: finding.category,
+      generatedAt: report.generatedAt,
+    }),
+  });
 }
 
 export interface DeterministicAssessment {
@@ -172,6 +195,65 @@ function createTruncatedEvidenceFinding(
   });
 }
 
+function createTruncatedAxeEvidenceFinding(
+  report: AxeEvidenceReportDto,
+): DeterministicFinding {
+  return Object.freeze({
+    code: "AXE_EVIDENCE_TRUNCATED",
+    source: "DETERMINISTIC",
+    severity: "HIGH",
+    title:
+      "Accessibility evidence exceeded the reporting boundary",
+    explanation:
+      `Axe adapter ${report.adapterVersion} retained only the bounded finding set for ${report.pagePath}.`,
+    file: report.pagePath,
+    blocking: false,
+  });
+}
+
+function appendExternalEvidenceFindings(
+  findings: DeterministicFinding[],
+  report: ExternalEvidenceReportDto,
+): void {
+  if (report.source === "TRIVY") {
+    for (const finding of report.findings) {
+      findings.push(
+        createTrivyFinding(
+          report,
+          finding,
+        ),
+      );
+    }
+
+    if (report.truncated) {
+      findings.push(
+        createTruncatedEvidenceFinding(
+          report,
+        ),
+      );
+    }
+
+    return;
+  }
+
+  for (const finding of report.findings) {
+    findings.push(
+      createAxeFinding(
+        report,
+        finding,
+      ),
+    );
+  }
+
+  if (report.truncated) {
+    findings.push(
+      createTruncatedAxeEvidenceFinding(
+        report,
+      ),
+    );
+  }
+}
+
 function createCiFinding(
   investigation: CiInvestigationDto,
 ): DeterministicFinding | undefined {
@@ -242,22 +324,10 @@ implements DeterministicEngine {
       const report
       of request.evidence.externalEvidence
     ) {
-      for (const finding of report.findings) {
-        findings.push(
-          createTrivyFinding(
-            report,
-            finding,
-          ),
-        );
-      }
-
-      if (report.truncated) {
-        findings.push(
-          createTruncatedEvidenceFinding(
-            report,
-          ),
-        );
-      }
+      appendExternalEvidenceFindings(
+        findings,
+        report,
+      );
     }
 
     const ciInvestigation =

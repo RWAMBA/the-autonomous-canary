@@ -48,6 +48,14 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    version:
+      "005_accessibility_evidence_attribution",
+    url: new URL(
+      "../db/migrations/005_accessibility_evidence_attribution.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 const pool = createPostgresPool(config);

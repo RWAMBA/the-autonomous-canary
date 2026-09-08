@@ -1,0 +1,54 @@
+BEGIN;
+
+DO $migration$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM schema_migrations
+    WHERE version = '005_accessibility_evidence_attribution'
+  ) THEN
+    ALTER TABLE deterministic_findings
+      DROP CONSTRAINT IF EXISTS deterministic_findings_evidence_attribution_check;
+
+    ALTER TABLE deterministic_findings
+      ADD CONSTRAINT deterministic_findings_evidence_attribution_check
+      CHECK (
+        (
+          evidence_source IS NULL
+          AND evidence_source_version IS NULL
+          AND evidence_identifier IS NULL
+          AND evidence_category IS NULL
+          AND evidence_generated_at IS NULL
+        )
+        OR (
+          evidence_source IS NOT NULL
+          AND evidence_source_version IS NOT NULL
+          AND length(evidence_source_version) BETWEEN 1 AND 50
+          AND evidence_identifier IS NOT NULL
+          AND length(evidence_identifier) BETWEEN 1 AND 200
+          AND evidence_category IS NOT NULL
+          AND evidence_generated_at IS NOT NULL
+          AND (
+            (
+              evidence_source = 'TRIVY'
+              AND evidence_category IN (
+                'DEPENDENCY_VULNERABILITY',
+                'CONTAINER_VULNERABILITY',
+                'INFRASTRUCTURE_MISCONFIGURATION'
+              )
+            )
+            OR (
+              evidence_source = 'AXE'
+              AND evidence_category = 'ACCESSIBILITY_VIOLATION'
+            )
+          )
+        )
+      );
+
+    INSERT INTO schema_migrations(version)
+    VALUES ('005_accessibility_evidence_attribution');
+  END IF;
+END
+$migration$;
+
+COMMIT;

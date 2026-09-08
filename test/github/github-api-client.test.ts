@@ -28,6 +28,7 @@ const installationToken =
 
 const config: GitHubAppConfig = {
   provider: "APP",
+  axeEvidenceProvider: "AXE",
   clientId: "Iv23unit-test-client",
   privateKey: generateKeyPairSync(
     "rsa",
@@ -1486,6 +1487,17 @@ test("collects one digest-bound Trivy artifact for the exact workflow", async ()
     }
 
     if (
+      url.includes(
+        "/artifacts?name=canaryguard-axe-accessibility-v1",
+      )
+    ) {
+      return jsonResponse({
+        total_count: 0,
+        artifacts: [],
+      });
+    }
+
+    if (
       url.endsWith(
         "/actions/artifacts/701/zip",
       )
@@ -1534,6 +1546,102 @@ test("collects one digest-bound Trivy artifact for the exact workflow", async ()
   );
 });
 
+test("collects one digest-bound Axe artifact for the exact workflow", async () => {
+  const evidence = {
+    schemaVersion:
+      "canaryguard-axe-evidence-v1",
+    source: "AXE",
+    adapterVersion: "1.0.0",
+    scannerVersion: "4.13.0",
+    generatedAt:
+      "2026-09-08T10:00:00.000Z",
+    repository: request.repository,
+    workflow: {
+      runId: request.runId,
+      runAttempt: 2,
+      headSha,
+    },
+    pagePath: "/management",
+    findings: [],
+    truncated: false,
+  } as const;
+  const archive = createStoredZip(
+    "canaryguard-axe-evidence.json",
+    JSON.stringify(evidence),
+  );
+  const digest = createHash("sha256")
+    .update(archive)
+    .digest("hex");
+  const fakeFetch = createFetch((url) => {
+    if (url.endsWith("/installation")) {
+      return jsonResponse(
+        installationResponse,
+      );
+    }
+
+    if (url.endsWith("/access_tokens")) {
+      return jsonResponse(tokenResponse);
+    }
+
+    if (
+      url.includes(
+        "/artifacts?name=canaryguard-axe-accessibility-v1",
+      )
+    ) {
+      return jsonResponse({
+        total_count: 1,
+        artifacts: [
+          {
+            id: 702,
+            name:
+              "canaryguard-axe-accessibility-v1",
+            size_in_bytes: archive.length,
+            expired: false,
+            digest: `sha256:${digest}`,
+          },
+        ],
+      });
+    }
+
+    if (url.includes("/artifacts?name=")) {
+      return jsonResponse({
+        total_count: 0,
+        artifacts: [],
+      });
+    }
+
+    if (
+      url.endsWith(
+        "/actions/artifacts/702/zip",
+      )
+    ) {
+      return new Response(
+        new Uint8Array(archive),
+        {
+          status: 200,
+        },
+      );
+    }
+
+    return jsonResponse({}, 404);
+  });
+
+  assert.deepEqual(
+    await new GitHubAppApiClient(
+      config,
+      {
+        fetchImplementation:
+          fakeFetch.implementation,
+      },
+    ).collectExternalEvidence({
+      ...request,
+      expectedRunAttempt: 2,
+      expectedInstallationId: 901,
+    }),
+    [evidence],
+  );
+});
+
 test("returns no external evidence when named artifacts are absent", async () => {
   const fakeFetch = createFetch((url) => {
     if (url.endsWith("/installation")) {
@@ -1568,6 +1676,54 @@ test("returns no external evidence when named artifacts are absent", async () =>
       request,
     ),
     [],
+  );
+});
+
+test("does not collect Axe evidence before staged activation", async () => {
+  const fakeFetch = createFetch((url) => {
+    if (url.endsWith("/installation")) {
+      return jsonResponse(
+        installationResponse,
+      );
+    }
+
+    if (url.endsWith("/access_tokens")) {
+      return jsonResponse(tokenResponse);
+    }
+
+    if (url.includes("/artifacts?name=")) {
+      return jsonResponse({
+        total_count: 0,
+        artifacts: [],
+      });
+    }
+
+    return jsonResponse({}, 404);
+  });
+  const client = new GitHubAppApiClient(
+    {
+      ...config,
+      axeEvidenceProvider: "DISABLED",
+    },
+    {
+      fetchImplementation:
+        fakeFetch.implementation,
+    },
+  );
+
+  assert.deepEqual(
+    await client.collectExternalEvidence(
+      request,
+    ),
+    [],
+  );
+  assert.equal(
+    fakeFetch.requests.some(
+      ({ url }) => url.includes(
+        "canaryguard-axe-accessibility-v1",
+      ),
+    ),
+    false,
   );
 });
 

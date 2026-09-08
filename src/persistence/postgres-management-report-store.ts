@@ -133,7 +133,7 @@ extends QueryResultRow {
   readonly file_path: string | null;
   readonly blocking: boolean;
   readonly evidence_source:
-    "TRIVY" | null;
+    "TRIVY" | "AXE" | null;
   readonly evidence_source_version:
     string | null;
   readonly evidence_identifier:
@@ -142,6 +142,7 @@ extends QueryResultRow {
     | "DEPENDENCY_VULNERABILITY"
     | "CONTAINER_VULNERABILITY"
     | "INFRASTRUCTURE_MISCONFIGURATION"
+    | "ACCESSIBILITY_VIOLATION"
     | null;
   readonly evidence_generated_at:
     Date | string | null;

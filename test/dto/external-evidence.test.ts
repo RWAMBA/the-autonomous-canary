@@ -4,6 +4,7 @@ import {
 } from "node:test";
 
 import {
+  parseAxeEvidenceReport,
   parseTrivyEvidenceReport,
 } from "../../src/dto/external-evidence.js";
 
@@ -81,6 +82,66 @@ test("rejects fields that could carry raw scanner output", () => {
           ...report.findings[0],
           description:
             "Unbounded provider description",
+        },
+      ],
+    }),
+  );
+});
+
+test("rejects accessibility categories in Trivy evidence", () => {
+  assert.throws(
+    () => parseTrivyEvidenceReport({
+      ...report,
+      findings: [
+        {
+          ...report.findings[0],
+          category:
+            "ACCESSIBILITY_VIOLATION",
+        },
+      ],
+    }),
+  );
+});
+
+const axeReport = {
+  schemaVersion:
+    "canaryguard-axe-evidence-v1",
+  source: "AXE",
+  adapterVersion: "1.0.0",
+  scannerVersion: "4.13.0",
+  generatedAt: "2026-09-08T10:00:00.000Z",
+  repository: report.repository,
+  workflow: report.workflow,
+  pagePath: "/management",
+  findings: [
+    {
+      identifier: "color-contrast",
+      category: "ACCESSIBILITY_VIOLATION",
+      severity: "HIGH",
+      title:
+        "color-contrast affects 2 elements",
+      pagePath: "/management",
+      affectedElements: 2,
+    },
+  ],
+  truncated: false,
+} as const;
+
+test("accepts one bounded versioned Axe evidence report", () => {
+  assert.deepEqual(
+    parseAxeEvidenceReport(axeReport),
+    axeReport,
+  );
+});
+
+test("rejects Axe evidence fields that could carry page content", () => {
+  assert.throws(
+    () => parseAxeEvidenceReport({
+      ...axeReport,
+      findings: [
+        {
+          ...axeReport.findings[0],
+          html: "<button>raw page content</button>",
         },
       ],
     }),
