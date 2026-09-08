@@ -64,6 +64,14 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    version:
+      "007_complete_external_evidence_adapters",
+    url: new URL(
+      "../db/migrations/007_complete_external_evidence_adapters.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 const pool = createPostgresPool(config);

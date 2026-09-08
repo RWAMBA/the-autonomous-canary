@@ -17,7 +17,7 @@ The MVP:
 - investigates bounded GitHub Actions workflow, job, step, and log-excerpt evidence
 - classifies failed or incomplete CI evidence into a bounded diagnostic contract
 - optionally collects completed workflow-run and exact-attempt job metadata through a least-privilege GitHub App
-- collects digest-verified, bounded Trivy security and Axe accessibility evidence from exact-name workflow artifacts
+- collects digest-verified, bounded accessibility, vulnerability, secret, deployed-exposure, infrastructure, and agent-action policy evidence from exact-name workflow artifacts
 - optionally validates signed GitHub `pull_request`, `workflow_run`, and generated `check_run` webhook deliveries
 - correlates pull requests, workflow attempts, reviews, and Check Runs to one immutable release identifier
 - optionally stores normalized release lifecycle records in PostgreSQL
@@ -384,11 +384,13 @@ The server rejects:
 - jobs for another run or head commit
 - incomplete, oversized, or invalid GitHub API responses
 
-The collector does not download job logs. It discovers the two exact-name Trivy artifacts and one exact-name Axe accessibility artifact produced by this repository's CI workflow. Each artifact is digest-verified, restricted to one bounded JSON file, strictly validated, and correlated to the repository, workflow run, run attempt, and reviewed head before its findings can reach deterministic policy. Missing artifacts are treated as no external evidence so repositories can adopt either adapter incrementally; malformed, ambiguous, expired, oversized, or mismatched artifacts fail the provider request.
+The collector does not download job logs. It discovers six exact-name artifacts produced by this repository's CI workflow: two Trivy vulnerability/configuration targets, Axe accessibility, Trivy secret scanning, deployed exposure, and agent-action policy. Each artifact is digest-verified, restricted to one bounded JSON file, strictly validated, and correlated to the repository, workflow run, run attempt, and reviewed head before its findings can reach deterministic policy. Missing artifacts are treated as no external evidence; malformed, ambiguous, expired, oversized, or mismatched artifacts fail the provider request.
 
 CI keeps Trivy's existing `HIGH,CRITICAL` enforcement and uploads only normalized evidence under `canaryguard-trivy-filesystem-v1` and `canaryguard-trivy-container-v1`. Raw scanner JSON is not uploaded. Normalized reports contain at most 50 deduplicated findings each and exclude scanner descriptions, remediation prose, dependency trees, secrets, and raw configuration content. Critical normalized findings block release; truncation raises a nonblocking high-risk signal.
 
 CI also scans the unauthenticated `/management` dashboard shell against the `wcag2a` and `wcag2aa` Axe rule tags. It uploads only `canaryguard-axe-evidence.json` under the exact artifact name `canaryguard-axe-accessibility-v1`. The normalized report contains at most 50 deduplicated rule findings and excludes raw HTML, selectors, page content, descriptions, help text, and remediation guidance. Critical normalized accessibility findings block release; truncation raises a nonblocking high-risk signal. Automated Axe results are release evidence, not proof of complete WCAG conformance.
+
+The remaining Phase 7 producers are activated together. CI uploads exact-name `canaryguard-trivy-secret-v1`, `canaryguard-deployed-exposure-v1`, and `canaryguard-agent-action-policy-v1` artifacts. Secret normalization retains rule identity and file only—never the match or secret. Exposure checks retain only rule identity and route. Agent-action checks retain only policy rule identity and workflow path. Each report is versioned, contains at most 50 critical-first deduplicated findings, and excludes raw responses, workflow contents, secrets, and remediation text. Critical findings block release; truncation is a nonblocking high-risk signal.
 
 When automation is enabled, a completed workflow associated with exactly one pull request is placed on a bounded process-local queue, reviewed with any correlated Trivy and Axe evidence, and published as a completed Check Run.
 
@@ -737,7 +739,7 @@ CI evidence is limited to:
 - 8,000 characters per log excerpt
 - 40,000 combined log-excerpt characters
 
-External evidence is limited to three exact-name reports: two Trivy targets and the `/management` Axe scan. Each report contains at most 50 normalized findings and is restricted to a 512 KiB artifact archive and a 256 KiB extracted JSON document. Artifact digests and all release-correlation fields must match before evaluation.
+External evidence is limited to six exact-name reports: two Trivy vulnerability/configuration targets, the `/management` Axe scan, secret scanning, deployed exposure, and agent-action policy. Each report contains at most 50 normalized findings and is restricted to a 512 KiB artifact archive and a 256 KiB extracted JSON document. Artifact digests and all release-correlation fields must match before evaluation.
 
 Job identifiers must be unique within a workflow run, and step numbers must be unique within a job.
 
@@ -1001,12 +1003,14 @@ Do not reuse `CANARYGUARD_API_KEY`, an OpenAI key, or the GitHub App private key
 | `GITHUB_AUTOMATION_QUEUE_CAPACITY` | Integer from 1 to 1,000 | `100` |
 | `GITHUB_AUTOMATION_CONCURRENCY` | Integer from 1 to 10 | `1` |
 | `CANARYGUARD_AXE_EVIDENCE_PROVIDER` | `DISABLED` or `AXE` | `DISABLED` |
+| `CANARYGUARD_PHASE7_EVIDENCE_PROVIDER` | `DISABLED` or `ENABLED` | `DISABLED` |
 
 Keep automatic reviews disabled until the GitHub App has `Actions: read`, `Pull requests: read`, and `Checks: write`, and both GitHub providers are configured:
 
 ```bash
 export CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=DISABLED
 export CANARYGUARD_AXE_EVIDENCE_PROVIDER=DISABLED
+export CANARYGUARD_PHASE7_EVIDENCE_PROVIDER=DISABLED
 ```
 
 Enable automated processing only after those prerequisites are satisfied:
@@ -1018,7 +1022,7 @@ export CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS
 ```
 
 The server rejects `CHECKS` mode at startup if either required GitHub provider is disabled.
-The durable automation worker starts only when `CANARYGUARD_AXE_EVIDENCE_PROVIDER=AXE`; while accessibility evidence is disabled, accepted durable workflow tasks remain pending for a later compatible worker instead of being completed without the required Axe policy signal.
+The durable automation worker starts when Axe evidence is `AXE` or the unified Phase 7 provider is `ENABLED`. During a staged evidence cutover, keep both new providers disabled until every older reader has drained so accepted durable tasks remain pending instead of being completed with a partial required evidence set.
 
 ### Release-lifecycle persistence
 
@@ -1055,7 +1059,7 @@ export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
 npm run db:migrate
 ```
 
-The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies `001_release_lifecycle`, `002_deployment_event_ingestion`, `003_management_reporting`, `004_external_evidence_attribution`, and `005_accessibility_evidence_attribution` and fails closed when any required migration is absent. The reporting migration adds query indexes only; it does not duplicate lifecycle records. Migration `004` adds nullable, all-or-none attribution fields for normalized external findings; migration `005` broadens the existing attribution constraint to admit normalized Axe accessibility findings and skips its locking DDL after the migration version is recorded. Neither migration stores raw scanner or page content. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
+The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies migrations `001` through `007` and fails closed when any required migration is absent. Migration `004` adds nullable, all-or-none attribution fields; migration `005` admits Axe; migration `006` adds tenant authorization; migration `007` admits the three remaining normalized Phase 7 source/category pairs. No migration stores raw scanner, secret, response, workflow, or page content. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
 
 For the forward deployment, use two distinct Render deployments:
 
@@ -1065,6 +1069,8 @@ For the forward deployment, use two distinct Render deployments:
 Do not collapse these into one deployment. The first deployment ensures every live management reader accepts Axe attribution before any worker can persist it; the second activates Axe collection without allowing a disabled worker to claim and complete a task without the new policy signal.
 
 Before rolling the application back to the immediately preceding revision `2751a87`, stop or drain every `005`-capable API and automation worker, then run `db/rollbacks/005_accessibility_evidence_attribution.sql` in the protected database administration environment. Verify that the `005_accessibility_evidence_attribution` marker is absent before starting the older application. The transaction clears only the five Axe attribution fields, retains each normalized deterministic finding and release record, restores the migration `004` constraint, and removes the `005` version marker so the forward migration remains re-applicable. Older rollback targets require their own migration-specific compatibility procedure.
+
+For the unified Phase 7 cutover, apply migration `007_complete_external_evidence_adapters`, deploy the new revision with `CANARYGUARD_PHASE7_EVIDENCE_PROVIDER=DISABLED`, and verify the compatible reader. After every previous-revision API and automation worker has drained, set the provider to `ENABLED` and deploy the same revision again. Do not process GitHub reviews during the mixed-version interval. To roll back to the migration-006 reader, first disable the provider and drain every migration-007-capable writer, then run `db/rollbacks/007_complete_external_evidence_adapters.sql`. The rollback clears attribution only for the three new sources, retains their deterministic findings and releases, restores the Trivy/Axe constraint, and makes migration 007 re-applicable.
 
 When PostgreSQL-backed webhook ingestion is enabled, `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS` is also required. This prevents accepted durable deliveries from accumulating without a worker.
 
@@ -1343,7 +1349,7 @@ The current MVP intentionally has these limitations:
 - process-local replay and queue behavior remains available only when persistence is intentionally disabled
 - automated workflow processing requires exactly one pull request in the completed `workflow_run` payload
 - direct pull-request events are ingested only when PostgreSQL persistence is enabled
-- automated workflow processing collects bounded normalized Trivy and Axe evidence but does not collect raw scanner output
+- automated workflow processing collects all bounded normalized Phase 7 evidence categories but does not collect raw scanner, secret, response, or workflow content
 - the automated Axe scan covers only the unauthenticated `/management` shell; authenticated dashboard state and complete WCAG conformance still require separate testing
 - Check Run publication for fork-owned head commits is not yet validated
 - PR summary comments are not implemented

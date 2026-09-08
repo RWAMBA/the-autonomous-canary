@@ -160,8 +160,9 @@ export function sanitizeReviewRequest(
         ),
       externalEvidence:
         request.evidence.externalEvidence.map(
-          (report) => report.source === "TRIVY"
-            ? {
+          (report) => {
+            if (report.source === "TRIVY") {
+              return {
                 ...report,
                 findings: report.findings.map(
                   (finding) => ({
@@ -180,8 +181,11 @@ export function sanitizeReviewRequest(
                         }),
                   }),
                 ),
-              }
-            : {
+              };
+            }
+
+            if (report.source === "AXE") {
+              return {
                 ...report,
                 findings: report.findings.map(
                   (finding) => ({
@@ -192,7 +196,27 @@ export function sanitizeReviewRequest(
                     ),
                   }),
                 ),
-              },
+              };
+            }
+
+            return {
+              ...report,
+              findings: report.findings.map(
+                (finding) => ({
+                  ...finding,
+                  title: sanitizeText(finding.title, counts),
+                  ...(finding.resource === undefined
+                    ? {}
+                    : {
+                        resource: sanitizeText(
+                          finding.resource,
+                          counts,
+                        ),
+                      }),
+                }),
+              ),
+            };
+          },
         ),
       ...(
         request.evidence.ci === undefined

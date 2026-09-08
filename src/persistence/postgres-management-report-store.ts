@@ -133,7 +133,12 @@ extends QueryResultRow {
   readonly file_path: string | null;
   readonly blocking: boolean;
   readonly evidence_source:
-    "TRIVY" | "AXE" | null;
+    | "TRIVY"
+    | "AXE"
+    | "TRIVY_SECRET"
+    | "CANARYGUARD_EXPOSURE"
+    | "CANARYGUARD_AGENT_POLICY"
+    | null;
   readonly evidence_source_version:
     string | null;
   readonly evidence_identifier:
@@ -143,6 +148,9 @@ extends QueryResultRow {
     | "CONTAINER_VULNERABILITY"
     | "INFRASTRUCTURE_MISCONFIGURATION"
     | "ACCESSIBILITY_VIOLATION"
+    | "SECRET_EXPOSURE"
+    | "DEPLOYED_EXPOSURE"
+    | "AGENT_ACTION_POLICY_VIOLATION"
     | null;
   readonly evidence_generated_at:
     Date | string | null;

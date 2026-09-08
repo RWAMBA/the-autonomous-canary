@@ -360,6 +360,20 @@ test("returns a bounded normalized release detail without audit metadata", async
               created_at:
                 "2026-08-30T18:48:00.000Z",
             },
+            {
+              code: "CANARYGUARD_AGENT_POLICY_AGENT_ACTION_POLICY_VIOLATION_CRITICAL",
+              severity: "CRITICAL",
+              title: "Workflow action is not pinned",
+              explanation: "Agent-action policy reported a violation.",
+              file_path: ".github/workflows/ci.yml",
+              blocking: true,
+              evidence_source: "CANARYGUARD_AGENT_POLICY",
+              evidence_source_version: "1.0.0",
+              evidence_identifier: "GHA_UNPINNED_ACTION",
+              evidence_category: "AGENT_ACTION_POLICY_VIOLATION",
+              evidence_generated_at: "2026-08-30T18:47:59.000Z",
+              created_at: "2026-08-30T18:48:00.000Z",
+            },
           ],
         };
       }
@@ -455,6 +469,16 @@ test("returns a bounded normalized release detail without audit metadata", async
         "DEPENDENCY_VULNERABILITY",
       generatedAt:
         "2026-08-30T18:47:59.000Z",
+    },
+  );
+  assert.deepEqual(
+    result.deterministicFindings.items[1]?.evidenceAttribution,
+    {
+      source: "CANARYGUARD_AGENT_POLICY",
+      sourceVersion: "1.0.0",
+      identifier: "GHA_UNPINNED_ACTION",
+      category: "AGENT_ACTION_POLICY_VIOLATION",
+      generatedAt: "2026-08-30T18:47:59.000Z",
     },
   );
   assert.deepEqual(

@@ -28,11 +28,13 @@ import type {
 } from "../dto/review-response.js";
 import {
   parseAxeEvidenceReport,
+  parsePhase7EvidenceReport,
   parseTrivyEvidenceReport,
 } from "../dto/external-evidence.js";
 import type {
   AxeEvidenceReportDto,
   ExternalEvidenceReportDto,
+  Phase7EvidenceReportDto,
   TrivyEvidenceReportDto,
 } from "../dto/external-evidence.js";
 import {
@@ -81,6 +83,9 @@ export const axeEvidenceArtifactName =
 export const axeEvidencePagePath =
   "/management";
 
+export const phase7EvidenceArtifactFileName =
+  "canaryguard-phase7-evidence.json";
+
 const trivyArtifactTargets = [
   {
     artifactName:
@@ -91,6 +96,24 @@ const trivyArtifactTargets = [
     artifactName:
       "canaryguard-trivy-container-v1",
     scanTarget: "CONTAINER_IMAGE",
+  },
+] as const;
+
+const phase7ArtifactTargets = [
+  {
+    artifactName: "canaryguard-trivy-secret-v1",
+    source: "TRIVY_SECRET",
+    scanTarget: "SECRET_SCAN",
+  },
+  {
+    artifactName: "canaryguard-deployed-exposure-v1",
+    source: "CANARYGUARD_EXPOSURE",
+    scanTarget: "DEPLOYED_EXPOSURE",
+  },
+  {
+    artifactName: "canaryguard-agent-action-policy-v1",
+    source: "CANARYGUARD_AGENT_POLICY",
+    scanTarget: "AGENT_ACTION_POLICY",
   },
 ] as const;
 
@@ -1523,6 +1546,49 @@ GitHubDeploymentCorrelationDiscoverer {
     return report;
   }
 
+  private async collectNamedPhase7Artifact(
+    request: GitHubCiCollectionRequest,
+    installationToken: string,
+    target: typeof phase7ArtifactTargets[number],
+  ): Promise<Phase7EvidenceReportDto | undefined> {
+    const evidenceBytes = await this.downloadNamedArtifact(
+      request,
+      installationToken,
+      target.artifactName,
+      phase7EvidenceArtifactFileName,
+    );
+
+    if (evidenceBytes === undefined) {
+      return undefined;
+    }
+
+    const report = parsePhase7EvidenceReport(
+      JSON.parse(evidenceBytes.toString("utf8")),
+    );
+
+    if (
+      report.source !== target.source
+      || report.scanTarget !== target.scanTarget
+      || report.workflow.runId !== request.runId
+      || (
+        request.expectedRunAttempt !== undefined
+        && report.workflow.runAttempt !== request.expectedRunAttempt
+      )
+      || !repositoriesMatch(
+        `${report.repository.owner}/${report.repository.name}`,
+        request.repository.owner,
+        request.repository.name,
+      )
+      || !shaValuesMatch(report.workflow.headSha, request.expectedHeadSha)
+    ) {
+      throw new Error(
+        "Phase 7 evidence does not match the requested workflow identity.",
+      );
+    }
+
+    return report;
+  }
+
   async collectExternalEvidence(
     input: GitHubCiCollectionRequest,
   ): Promise<
@@ -1587,13 +1653,21 @@ GitHubDeploymentCorrelationDiscoverer {
               ]
             : []
         ),
+        ...(
+          this.config.phase7EvidenceProvider === "ENABLED"
+            ? phase7ArtifactTargets.map((target) =>
+                this.collectNamedPhase7Artifact(
+                  request,
+                  installationToken,
+                  target,
+                ),
+              )
+            : []
+        ),
       ]);
 
-      return reports.filter(
-        (
-          report,
-        ): report is ExternalEvidenceReportDto =>
-          report !== undefined,
+      return reports.flatMap((report) =>
+        report === undefined ? [] : [report],
       );
     } catch (error) {
       if (error instanceof HttpError) {

@@ -160,6 +160,61 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Scan repository secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          severity: HIGH,CRITICAL
+          format: json
+          output: .canaryguard-trivy-secret.json
+          exit-code: "1"
+          hide-progress: "true"
+
+      - name: Normalize secret-scanning evidence
+        if: ${{ always() && hashFiles('.canaryguard-trivy-secret.json') != '' }}
+        env:
+          CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p canaryguard-evidence/secret
+          npx --no-install tsx scripts/normalize-phase7-evidence.ts \
+            --input .canaryguard-trivy-secret.json \
+            --output canaryguard-evidence/secret/canaryguard-phase7-evidence.json \
+            --source TRIVY_SECRET \
+            --scanner-version trivy-action-v0.36.0
+
+      - name: Upload secret-scanning evidence
+        if: ${{ always() && hashFiles('canaryguard-evidence/secret/canaryguard-phase7-evidence.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canaryguard-trivy-secret-v1
+          path: canaryguard-evidence/secret/canaryguard-phase7-evidence.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Check agent-action policy
+        env:
+          CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p canaryguard-evidence/agent-policy
+          npx --no-install tsx scripts/check-agent-action-policy.ts \
+            --output .canaryguard-agent-action-policy.json
+          npx --no-install tsx scripts/normalize-phase7-evidence.ts \
+            --input .canaryguard-agent-action-policy.json \
+            --output canaryguard-evidence/agent-policy/canaryguard-phase7-evidence.json \
+            --source CANARYGUARD_AGENT_POLICY \
+            --scanner-version 1.0.0
+
+      - name: Upload agent-action policy evidence
+        if: ${{ always() && hashFiles('canaryguard-evidence/agent-policy/canaryguard-phase7-evidence.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canaryguard-agent-action-policy-v1
+          path: canaryguard-evidence/agent-policy/canaryguard-phase7-evidence.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Type-check
         run: npm run typecheck
 
@@ -197,6 +252,29 @@ jobs:
             --chromedriver-path "${CHROMEWEBDRIVER}/chromedriver" \
             http://127.0.0.1:3000/management \
             > .canaryguard-axe-accessibility.json
+
+      - name: Check deployed exposure
+        env:
+          CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p canaryguard-evidence/exposure
+          npx --no-install tsx scripts/check-deployed-exposure.ts \
+            --base-url http://127.0.0.1:3000 \
+            --output .canaryguard-deployed-exposure.json
+          npx --no-install tsx scripts/normalize-phase7-evidence.ts \
+            --input .canaryguard-deployed-exposure.json \
+            --output canaryguard-evidence/exposure/canaryguard-phase7-evidence.json \
+            --source CANARYGUARD_EXPOSURE \
+            --scanner-version 1.0.0
+
+      - name: Upload deployed-exposure evidence
+        if: ${{ always() && hashFiles('canaryguard-evidence/exposure/canaryguard-phase7-evidence.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canaryguard-deployed-exposure-v1
+          path: canaryguard-evidence/exposure/canaryguard-phase7-evidence.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Normalize accessibility evidence
         if: ${{ always() && hashFiles('.canaryguard-axe-accessibility.json') != '' }}

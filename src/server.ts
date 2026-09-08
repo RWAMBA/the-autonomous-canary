@@ -384,8 +384,10 @@ const server =
 
 if (
   githubConfig.provider === "APP"
-  && githubConfig.axeEvidenceProvider
-    === "AXE"
+  && (
+    githubConfig.axeEvidenceProvider === "AXE"
+    || githubConfig.phase7EvidenceProvider === "ENABLED"
+  )
 ) {
   durableWorkflowRunWorker?.start();
 }

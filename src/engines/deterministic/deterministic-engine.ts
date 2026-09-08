@@ -12,6 +12,8 @@ import type {
   AxeEvidenceReportDto,
   ExternalEvidenceAttribution,
   ExternalEvidenceReportDto,
+  Phase7EvidenceFindingDto,
+  Phase7EvidenceReportDto,
   TrivyEvidenceFindingDto,
   TrivyEvidenceReportDto,
 } from "../../dto/external-evidence.js";
@@ -211,6 +213,45 @@ function createTruncatedAxeEvidenceFinding(
   });
 }
 
+function createPhase7Finding(
+  report: Phase7EvidenceReportDto,
+  finding: Phase7EvidenceFindingDto,
+): DeterministicFinding {
+  return Object.freeze({
+    code: `${report.source}_${finding.category}_${finding.severity}`,
+    source: "DETERMINISTIC",
+    severity: finding.severity,
+    title: finding.title,
+    explanation:
+      `Finding ${finding.identifier} was normalized by ${report.source} adapter ${report.adapterVersion} from scanner ${report.scannerVersion}.`,
+    ...(finding.resource === undefined
+      ? {}
+      : { file: finding.resource }),
+    blocking: finding.severity === "CRITICAL",
+    attribution: Object.freeze({
+      source: report.source,
+      sourceVersion: report.adapterVersion,
+      identifier: finding.identifier,
+      category: finding.category,
+      generatedAt: report.generatedAt,
+    }),
+  });
+}
+
+function createTruncatedPhase7EvidenceFinding(
+  report: Phase7EvidenceReportDto,
+): DeterministicFinding {
+  return Object.freeze({
+    code: `${report.source}_EVIDENCE_TRUNCATED`,
+    source: "DETERMINISTIC",
+    severity: "HIGH",
+    title: "External evidence exceeded the reporting boundary",
+    explanation:
+      `${report.source} adapter ${report.adapterVersion} retained only the bounded finding set for ${report.scanTarget}.`,
+    blocking: false,
+  });
+}
+
 function appendExternalEvidenceFindings(
   findings: DeterministicFinding[],
   report: ExternalEvidenceReportDto,
@@ -231,6 +272,18 @@ function appendExternalEvidenceFindings(
           report,
         ),
       );
+    }
+
+    return;
+  }
+
+  if (report.source !== "AXE") {
+    for (const finding of report.findings) {
+      findings.push(createPhase7Finding(report, finding));
+    }
+
+    if (report.truncated) {
+      findings.push(createTruncatedPhase7EvidenceFinding(report));
     }
 
     return;

@@ -77,6 +77,7 @@ const migrationVersions = [
   "004_external_evidence_attribution",
   "005_accessibility_evidence_attribution",
   "006_tenant_authorization_foundation",
+  "007_complete_external_evidence_adapters",
 ] as const;
 
 function isUniqueViolation(
