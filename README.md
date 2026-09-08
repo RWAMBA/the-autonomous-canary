@@ -1222,6 +1222,8 @@ GITHUB_WEBHOOK_SECRET=<dedicated high-entropy webhook secret>
 
 Optionally configure the process-local replay TTL and capacity within their documented bounds. In the GitHub App settings, use the HTTPS payload URL ending in `/github/webhooks`, keep SSL verification enabled, and subscribe only to the Pull requests and Workflow runs events.
 
+Before relying on automated reviews, confirm that a test pull request produces both a `pull_request` delivery and a completed `workflow_run` delivery under the GitHub App's recent deliveries. Workflow-run delivery alone cannot establish pull-request head supersession after a branch update.
+
 After adding `Pull requests: read` and `Checks: write` to the installed GitHub App and approving the permission update, enable automatic Check Runs with:
 
 ```text
