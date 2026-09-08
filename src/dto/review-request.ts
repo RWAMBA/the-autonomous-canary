@@ -5,6 +5,10 @@ import {
 import {
   ciEvidenceSchema,
 } from "./ci-evidence.js";
+import {
+  maximumTrivyEvidenceReports,
+  trivyEvidenceReportSchema,
+} from "./external-evidence.js";
 
 export const maximumDiffLength = 200_000;
 export const maximumSecurityFindings = 100;
@@ -99,6 +103,26 @@ export const reviewEvidenceWithoutCiSchema = z
       .array(securityFindingSchema)
       .max(maximumSecurityFindings)
       .default([]),
+    externalEvidence: z
+      .array(trivyEvidenceReportSchema)
+      .max(maximumTrivyEvidenceReports)
+      .default([])
+      .superRefine((reports, context) => {
+        const targets = reports.map(
+          (report) => report.scanTarget,
+        );
+
+        if (
+          new Set(targets).size
+          !== targets.length
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "External evidence must contain at most one report for each scan target.",
+          });
+        }
+      }),
   })
   .strict();
 
@@ -115,7 +139,51 @@ export const reviewRequestSchema = z
     change: reviewChangeSchema,
     evidence: reviewEvidenceSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((request, context) => {
+    for (
+      const [index, report]
+      of request.evidence.externalEvidence
+        .entries()
+    ) {
+      if (
+        report.repository.owner.toLowerCase()
+          !== request.repository.owner.toLowerCase()
+        || report.repository.name.toLowerCase()
+          !== request.repository.name.toLowerCase()
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "evidence",
+            "externalEvidence",
+            index,
+            "repository",
+          ],
+          message:
+            "External evidence does not belong to the reviewed repository.",
+        });
+      }
+
+      if (
+        report.workflow.headSha.toLowerCase()
+        !== request.change.headSha.toLowerCase()
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "evidence",
+            "externalEvidence",
+            index,
+            "workflow",
+            "headSha",
+          ],
+          message:
+            "External evidence does not belong to the reviewed head commit.",
+        });
+      }
+    }
+  });
 
 export type ReviewRequestDto = z.infer<
   typeof reviewRequestSchema

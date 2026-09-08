@@ -354,7 +354,11 @@ The server rejects:
 - jobs for another run or head commit
 - incomplete, oversized, or invalid GitHub API responses
 
-The collector does not download job logs. When automation is enabled, a completed workflow associated with exactly one pull request is placed on a bounded process-local queue, reviewed, and published as a completed Check Run.
+The collector does not download job logs. It also discovers the two exact-name Trivy artifacts produced by this repository's CI workflow. Each artifact is digest-verified, restricted to one bounded JSON file, strictly validated, and correlated to the repository, workflow run, run attempt, and reviewed head before its findings can reach deterministic policy. Missing artifacts are treated as no external evidence so repositories can adopt the adapter incrementally; malformed, ambiguous, expired, oversized, or mismatched artifacts fail the provider request.
+
+CI keeps Trivy's existing `HIGH,CRITICAL` enforcement and uploads only normalized evidence under `canaryguard-trivy-filesystem-v1` and `canaryguard-trivy-container-v1`. Raw scanner JSON is not uploaded. Normalized reports contain at most 50 deduplicated findings each and exclude scanner descriptions, remediation prose, dependency trees, secrets, and raw configuration content. Critical normalized findings block release; truncation raises a nonblocking high-risk signal.
+
+When automation is enabled, a completed workflow associated with exactly one pull request is placed on a bounded process-local queue, reviewed with any correlated Trivy evidence, and published as a completed Check Run.
 
 ### GitHub App permissions
 
@@ -364,7 +368,7 @@ Each operation receives a separate repository-scoped installation token:
 
 | Operation | Requested repository permission |
 |---|---|
-| Workflow and job evidence | `Actions: read` |
+| Workflow, job, and normalized artifact evidence | `Actions: read` |
 | Pull-request metadata and diff | `Pull requests: read` |
 | Completed Check Run publication | `Checks: write` |
 
@@ -675,6 +679,8 @@ CI evidence is limited to:
 - 100 steps per job
 - 8,000 characters per log excerpt
 - 40,000 combined log-excerpt characters
+
+External Trivy evidence is limited to two exact-name reports, 50 normalized findings per report, a 512 KiB artifact archive, and a 256 KiB extracted JSON document. Artifact digests and all release-correlation fields must match before evaluation.
 
 Job identifiers must be unique within a workflow run, and step numbers must be unique within a job.
 
@@ -989,7 +995,7 @@ export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
 npm run db:migrate
 ```
 
-The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies `001_release_lifecycle`, `002_deployment_event_ingestion`, and `003_management_reporting` and fails closed when any required migration is absent. The reporting migration adds query indexes only; it does not duplicate lifecycle records. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
+The migrations are transactional and protected by a PostgreSQL advisory lock. Application startup verifies `001_release_lifecycle`, `002_deployment_event_ingestion`, `003_management_reporting`, and `004_external_evidence_attribution` and fails closed when any required migration is absent. The reporting migration adds query indexes only; it does not duplicate lifecycle records. Migration `004` adds nullable, all-or-none attribution fields for normalized external findings; it stores no raw scanner report. `DATABASE_SSL_MODE=REQUIRE` normalizes the connection URL to `sslmode=verify-full` and explicitly requires certificate and hostname verification. This also avoids relying on the weaker future `sslmode=require` semantics announced for the next major `pg` release. Use `DATABASE_SSL_MODE=DISABLE` only for an intentionally local database that does not support TLS.
 
 When PostgreSQL-backed webhook ingestion is enabled, `CANARYGUARD_GITHUB_AUTOMATION_PROVIDER=CHECKS` is also required. This prevents accepted durable deliveries from accumulating without a worker.
 
@@ -1185,6 +1191,7 @@ src/
 │   ├── ci-diagnostic.ts
 │   ├── ci-investigation.ts
 │   ├── deployment-event.ts
+│   ├── external-evidence.ts
 │   ├── github-review-request.ts
 │   ├── github-webhook.ts
 │   ├── management-report.ts
@@ -1210,8 +1217,11 @@ src/
 │   │   ├── openai-intelligence-engine.ts
 │   │   └── review-prompt.ts
 │   └── policy/
+├── evidence/
+│   └── trivy-evidence-adapter.ts
 ├── github/
 │   ├── github-api-client.ts
+│   ├── github-artifact-archive.ts
 │   ├── github-app-config.ts
 │   ├── github-app-jwt.ts
 │   ├── github-automation-config.ts

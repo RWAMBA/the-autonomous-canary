@@ -74,6 +74,7 @@ const migrationVersions = [
   "001_release_lifecycle",
   "002_deployment_event_ingestion",
   "003_management_reporting",
+  "004_external_evidence_attribution",
 ] as const;
 
 function isUniqueViolation(
@@ -442,8 +443,13 @@ implements ReleaseLifecycleStore {
                title,
                explanation,
                file_path,
-               blocking
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+               blocking,
+               evidence_source,
+               evidence_source_version,
+               evidence_identifier,
+               evidence_category,
+               evidence_generated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
             [
               releaseId,
               finding.code,
@@ -452,6 +458,11 @@ implements ReleaseLifecycleStore {
               finding.explanation,
               finding.file ?? null,
               finding.blocking,
+              finding.attribution?.source ?? null,
+              finding.attribution?.sourceVersion ?? null,
+              finding.attribution?.identifier ?? null,
+              finding.attribution?.category ?? null,
+              finding.attribution?.generatedAt ?? null,
             ],
           );
         }

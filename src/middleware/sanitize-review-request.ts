@@ -158,6 +158,29 @@ export function sanitizeReviewRequest(
             ),
           }),
         ),
+      externalEvidence:
+        request.evidence.externalEvidence.map(
+          (report) => ({
+            ...report,
+            findings: report.findings.map(
+              (finding) => ({
+                ...finding,
+                title: sanitizeText(
+                  finding.title,
+                  counts,
+                ),
+                ...(finding.file === undefined
+                  ? {}
+                  : {
+                      file: sanitizeText(
+                        finding.file,
+                        counts,
+                      ),
+                    }),
+              }),
+            ),
+          }),
+        ),
       ...(
         request.evidence.ci === undefined
           ? {}

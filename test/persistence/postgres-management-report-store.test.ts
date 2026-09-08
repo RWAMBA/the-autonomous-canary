@@ -270,14 +270,23 @@ test("returns a bounded normalized release detail without audit metadata", async
         return {
           rows: [
             {
-              code: "CI_INCOMPLETE",
+              code:
+                "TRIVY_DEPENDENCY_VULNERABILITY_HIGH",
               severity: "HIGH",
               title:
-                "CI evidence is incomplete",
+                "CVE-2026-1000 affects example@1.0.0",
               explanation:
-                "A required workflow result was unavailable.",
+                "Trivy reported a dependency vulnerability.",
               file_path: null,
               blocking: false,
+              evidence_source: "TRIVY",
+              evidence_source_version: "1.0.0",
+              evidence_identifier:
+                "CVE-2026-1000",
+              evidence_category:
+                "DEPENDENCY_VULNERABILITY",
+              evidence_generated_at:
+                "2026-08-30T18:47:59.000Z",
               created_at:
                 "2026-08-30T18:48:00.000Z",
             },
@@ -364,6 +373,19 @@ test("returns a bounded normalized release detail without audit metadata", async
     result.deploymentAttempts.items[0]
       ?.observations[0]?.healthStatus,
     "HEALTHY",
+  );
+  assert.deepEqual(
+    result.deterministicFindings.items[0]
+      ?.evidenceAttribution,
+    {
+      source: "TRIVY",
+      sourceVersion: "1.0.0",
+      identifier: "CVE-2026-1000",
+      category:
+        "DEPENDENCY_VULNERABILITY",
+      generatedAt:
+        "2026-08-30T18:47:59.000Z",
+    },
   );
   assert.deepEqual(
     result.auditEvents.items[0],

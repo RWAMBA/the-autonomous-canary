@@ -14,6 +14,8 @@ USER node
 COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci
 
+COPY --chown=node:node .dockerignore ./.dockerignore
+COPY --chown=node:node .github/workflows/ci.yml ./.github/workflows/ci.yml
 COPY --chown=node:node Dockerfile ./Dockerfile
 COPY --chown=node:node tsconfig.json tsconfig.test.json ./
 COPY --chown=node:node db ./db

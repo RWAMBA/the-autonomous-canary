@@ -23,6 +23,7 @@ function createValidRequest() {
     evidence: {
       testStatus: "passed",
       securityFindings: [],
+      externalEvidence: [],
     },
   };
 }
@@ -60,6 +61,7 @@ test("accepts and normalizes a valid review request", () => {
     evidence: {
       testStatus: "passed",
       securityFindings: [],
+      externalEvidence: [],
     },
   });
 });

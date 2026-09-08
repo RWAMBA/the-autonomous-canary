@@ -188,7 +188,29 @@ test("accepts bounded normalized management responses", () => {
         truncated: false,
       },
       deterministicFindings: {
-        items: [],
+        items: [
+          {
+            code:
+              "TRIVY_DEPENDENCY_VULNERABILITY_HIGH",
+            severity: "HIGH",
+            title:
+              "CVE-2026-1000 affects example@1.0.0",
+            explanation:
+              "Trivy reported a dependency vulnerability.",
+            blocking: false,
+            evidenceAttribution: {
+              source: "TRIVY",
+              sourceVersion: "1.0.0",
+              identifier: "CVE-2026-1000",
+              category:
+                "DEPENDENCY_VULNERABILITY",
+              generatedAt:
+                "2026-09-07T18:42:07.000Z",
+            },
+            createdAt:
+              "2026-09-07T18:42:08.000Z",
+          },
+        ],
         truncated: false,
       },
       deploymentAttempts: {

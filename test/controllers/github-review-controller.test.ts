@@ -84,6 +84,10 @@ test("collects authoritative CI evidence before using the existing review pipeli
           );
         },
       },
+      externalEvidenceCollector: {
+        collectExternalEvidence:
+          () => Promise.resolve([]),
+      },
       reviewController:
         new DefaultReviewController({
           createReviewId:
@@ -143,6 +147,10 @@ test("does not run review analysis when GitHub evidence collection fails", async
               "Synthetic collection failure",
             ),
           ),
+      },
+      externalEvidenceCollector: {
+        collectExternalEvidence:
+          () => Promise.resolve([]),
       },
       reviewController: {
         createReview: () => {

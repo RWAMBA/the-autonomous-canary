@@ -194,8 +194,12 @@ test("requires all lifecycle and reporting migrations at startup", async () => {
           version:
             "003_management_reporting",
         },
+        {
+          version:
+            "004_external_evidence_attribution",
+        },
       ],
-      rowCount: 3,
+      rowCount: 4,
     }),
   } as unknown as Pool;
 
@@ -214,8 +218,12 @@ test("requires all lifecycle and reporting migrations at startup", async () => {
           version:
             "002_deployment_event_ingestion",
         },
+        {
+          version:
+            "003_management_reporting",
+        },
       ],
-      rowCount: 2,
+      rowCount: 3,
     }),
   } as unknown as Pool;
 
@@ -223,7 +231,7 @@ test("requires all lifecycle and reporting migrations at startup", async () => {
     new PostgresReleaseLifecycleStore(
       incompletePool,
     ).verifySchema(),
-    /Database migration 003_management_reporting has not been applied\./u,
+    /Database migration 004_external_evidence_attribution has not been applied\./u,
   );
 });
 

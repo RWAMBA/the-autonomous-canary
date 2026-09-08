@@ -132,6 +132,19 @@ extends QueryResultRow {
   readonly explanation: string;
   readonly file_path: string | null;
   readonly blocking: boolean;
+  readonly evidence_source:
+    "TRIVY" | null;
+  readonly evidence_source_version:
+    string | null;
+  readonly evidence_identifier:
+    string | null;
+  readonly evidence_category:
+    | "DEPENDENCY_VULNERABILITY"
+    | "CONTAINER_VULNERABILITY"
+    | "INFRASTRUCTURE_MISCONFIGURATION"
+    | null;
+  readonly evidence_generated_at:
+    Date | string | null;
   readonly created_at: Date | string;
 }
 
@@ -720,6 +733,11 @@ implements ManagementReportStore {
                explanation,
                file_path,
                blocking,
+               evidence_source,
+               evidence_source_version,
+               evidence_identifier,
+               evidence_category,
+               evidence_generated_at,
                created_at
              FROM deterministic_findings
              WHERE release_id = $1::uuid
@@ -973,6 +991,31 @@ implements ManagementReportStore {
                       filePath: row.file_path,
                     }),
                 blocking: row.blocking,
+                ...(
+                  row.evidence_source == null
+                  || row.evidence_source_version == null
+                  || row.evidence_identifier == null
+                  || row.evidence_category == null
+                  || row.evidence_generated_at == null
+                    ? {}
+                    : {
+                        evidenceAttribution: {
+                          source:
+                            row.evidence_source,
+                          sourceVersion:
+                            row.evidence_source_version,
+                          identifier:
+                            row.evidence_identifier,
+                          category:
+                            row.evidence_category,
+                          generatedAt:
+                            asIsoDateTime(
+                              row.evidence_generated_at,
+                              "finding.evidence_generated_at",
+                            ),
+                        },
+                      }
+                ),
                 createdAt: asIsoDateTime(
                   row.created_at,
                   "finding.created_at",
