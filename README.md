@@ -436,7 +436,7 @@ The receiver:
 
 A duplicate durable delivery receives `409 GITHUB_WEBHOOK_DELIVERY_REPLAYED`, including after a restart or when another service instance received the original delivery. With persistence disabled, the legacy bounded in-process registry remains available and can return HTTP `503` while full.
 
-Direct `pull_request` processing requires PostgreSQL persistence. This closes the earlier workflow-only correlation gap: a synchronize event establishes the current head before its workflow completes, supersedes older pending releases, and prevents a completed workflow for an older head from entering the review queue. Closing a pull request cancels its active release and queued work; reopening it restores that release to pending, while completed workflows for a still-closed pull request are recorded and ignored.
+Direct `pull_request` processing requires PostgreSQL persistence. This closes the earlier workflow-only correlation gap: a synchronize event establishes the current head before its workflow completes, supersedes older pending releases, and prevents a completed workflow for an older head from entering the review queue. Closing an unmerged pull request cancels its active release and queued work; a merged closure preserves the reviewed release for deployment correlation. Reopening an unmerged pull request restores that release to pending, while completed workflows for a still-closed pull request are recorded and ignored.
 
 With both persistence and automation enabled, the endpoint returns only after the delivery and task commit. A polling worker claims tasks with PostgreSQL row locks, a bounded lease, and bounded exponential retry scheduling. A crashed worker's expired lease becomes claimable by another instance. The worker then collects exact workflow evidence and the pull-request change, invokes the internal review controller, and upserts one completed Check Run. It never executes a deployment.
 
@@ -532,7 +532,7 @@ curl \
 
 An accepted new event returns HTTP `202`; an exact replay returns HTTP `200` with `replayed: true`. Reusing an event UUID for different validated content returns HTTP `409`. Replay records persist only a SHA-256 digest of the normalized event, not a raw payload.
 
-Each event is transactionally correlated to the release and, when applicable, the same deployment attempt. Events that violate persisted policy, attempt state, release identity, or chronological order fail closed. `CONTINUED` keeps a canary attempt in observation; for a standard 100% deployment it records successful continuation and completes the attempt. Pull-request closure or supersession cancels active attempts.
+Each event is transactionally correlated to the release and, when applicable, the same deployment attempt. Events that violate persisted policy, attempt state, release identity, or chronological order fail closed. `CONTINUED` keeps a canary attempt in observation; for a standard 100% deployment it records successful continuation and completes the attempt. Unmerged pull-request closure or release supersession cancels active attempts.
 
 Prediction direction is measured deterministically. `HIGH`, `CRITICAL`, or `BLOCKED` predictions are adverse; `BLOCKED`, `ROLLED_BACK`, and `FAILED` results are adverse. Equality between the predicted and actual direction produces `directionallyCorrect: true`. The measurement is stored and returned, but it never executes deployment commands, overrides policy, or creates a policy change.
 
@@ -584,6 +584,31 @@ npm run rollout:canary
 ```
 
 The supplied traffic percentage must exactly match the persisted policy decision. Clear the correlation values after the rollout and never place production identifiers or the shared API key in source files.
+
+### Discover Render deployment correlation
+
+`npm run deployment:discover:render` is a standalone read-only command for a trusted deployment orchestrator. It lists at most 20 Render deploys and requires exactly one `live` deploy for the exact configured commit. It then uses the GitHub App's Pull requests read permission to find the single merged pull request that introduced the deployed commit, resolves the single persisted `REVIEWED` release for the pull-request head SHA through an authenticated exact-SHA management query, requires a valid `CONTINUE` deployment policy, and generates a new attempt UUID.
+
+```bash
+set +x
+
+export CANARYGUARD_MANAGEMENT_RELEASES_URL='https://canaryguard.example/management/releases'
+export CANARYGUARD_API_KEY='use-a-protected-runtime-secret'
+export CANARYGUARD_REPOSITORY_OWNER='RWAMBA'
+export CANARYGUARD_REPOSITORY_NAME='the-autonomous-canary'
+export CANARYGUARD_DEPLOYED_COMMIT_SHA='be147dd651fb58388d2864203d6377df74a828f9'
+export RENDER_API_KEY='use-a-read-capable-render-token'
+export RENDER_SERVICE_ID='srv-example'
+export CANARYGUARD_GITHUB_PROVIDER=APP
+export GITHUB_APP_CLIENT_ID='use-the-installed-app-client-id'
+export GITHUB_APP_PRIVATE_KEY_BASE64='use-the-protected-base64-key'
+
+npm run deployment:discover:render
+```
+
+The JSON result contains only provider and correlation identifiers: the Render deploy and commit, merged pull request and review head, release UUID, new attempt UUID, and persisted deployment strategy and traffic percentage. It never contains either bearer token or the GitHub private key. A trusted orchestrator can validate and pass those identifiers into its provider-specific deployment workflow; this command does not publish lifecycle outcomes by itself.
+
+Render discovery does not trigger, observe, promote, cancel, or roll back a deployment, and it is deliberately separate from `rollout:canary`, which controls the local Docker Compose and Nginx stack. Any missing, duplicate, non-live, repository-mismatched, pull-request-mismatched, unreviewed, or invalid-policy result fails closed. Render REST polling is used because service webhooks require a paid Render plan.
 
 ## Query management release reports
 
@@ -1290,7 +1315,7 @@ The current MVP intentionally has these limitations:
 - Check Run publication for fork-owned head commits is not yet validated
 - PR summary comments are not implemented
 - deployment events require PostgreSQL persistence; there is no process-local outcome store
-- rollout publication requires an operator or trusted orchestrator to supply the exact persisted release ID and a new attempt UUID; provider deployment discovery is not implemented
+- Render discovery returns the exact deploy, merged pull request, persisted release, fresh attempt identity, and deployment policy to a trusted orchestrator; lifecycle publication and provider actions remain separate
 - evidence reports export as bounded JSON; signed reports, PDF rendering, and bulk exports are not implemented
 - policy-change proposals are persisted for explicit human decisions; no workflow may automatically rewrite hard-coded policy
 - deployment actions are recommended but not automatically executed by the Review API

@@ -30,6 +30,7 @@ function createPullRequestPayload() {
     pull_request: {
       number: 21,
       state: "open",
+      merged: false,
       draft: false,
       title:
         "Persist the release lifecycle",

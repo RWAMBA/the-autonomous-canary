@@ -24,6 +24,7 @@ const headSha =
 
 function createPullRequestPayload(
   action: "closed" | "reopened",
+  merged = false,
 ) {
   return parseGitHubPullRequestWebhook({
     action,
@@ -46,6 +47,7 @@ function createPullRequestPayload(
       state: action === "closed"
         ? "closed"
         : "open",
+      merged,
       draft: false,
       title:
         "Persist the release lifecycle",
@@ -337,6 +339,64 @@ test("cancels a closed pull request release and its pending automation", async (
         "SET status = 'CANCELLED'",
       )),
     true,
+  );
+});
+
+test("preserves a reviewed release when its pull request was merged", async () => {
+  const statements: string[] = [];
+  const pool = createPool(
+    async (text) => {
+      const sql = normalizeSql(text);
+      statements.push(sql);
+
+      if (sql.startsWith("UPDATE repositories")) {
+        return {
+          rows: [{
+            repository_id: "41",
+          }],
+        };
+      }
+
+      if (sql.startsWith("INSERT INTO pull_requests")) {
+        return {
+          rows: [{
+            pull_request_id: "52",
+            head_sha: headSha,
+            state: "CLOSED",
+          }],
+        };
+      }
+
+      if (sql.startsWith("INSERT INTO releases")) {
+        return {
+          rows: [{
+            release_id: releaseId,
+          }],
+        };
+      }
+
+      return {
+        rows: [],
+      };
+    },
+  );
+
+  await new PostgresReleaseLifecycleStore(
+    pool,
+  ).acceptPullRequestDelivery({
+    deliveryId:
+      "73d3162e-cc78-11e3-81ab-4c9367dc0958",
+    payload: createPullRequestPayload(
+      "closed",
+      true,
+    ),
+  });
+
+  assert.equal(
+    statements.some((sql) =>
+      sql.includes("SET status = 'CANCELLED'")
+      && sql.includes("WHERE release_id = $1")),
+    false,
   );
 });
 

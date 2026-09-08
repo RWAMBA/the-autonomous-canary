@@ -213,6 +213,76 @@ test("lists repository-scoped releases with stable keyset pagination", async () 
   );
 });
 
+test("filters release discovery by parameterized exact head SHA", async () => {
+  const reviewHeadSha =
+    "3128a8c383889ae107e9a999778be70a2263a21a";
+  let releaseSql = "";
+  let releaseValues:
+    readonly unknown[] | undefined;
+  const pool = createPool(
+    async (text, values) => {
+      const sql = normalizeSql(text);
+
+      if (sql.includes("FROM repositories")) {
+        return {
+          rows: [
+            {
+              repository_id: "101",
+              owner: "RWAMBA",
+              name:
+                "the-autonomous-canary",
+            },
+          ],
+        };
+      }
+
+      if (sql.includes("FROM releases AS r")) {
+        releaseSql = sql;
+        releaseValues = values;
+
+        return {
+          rows: [
+            releaseRow({
+              head_sha: reviewHeadSha,
+            }),
+          ],
+        };
+      }
+
+      return {
+        rows: [],
+      };
+    },
+  );
+
+  const result =
+    await new PostgresManagementReportStore(
+      pool,
+    ).listReleases({
+      repositoryOwner: "RWAMBA",
+      repositoryName:
+        "the-autonomous-canary",
+      headSha: reviewHeadSha,
+      limit: 2,
+    });
+
+  assert.equal(
+    result.releases[0]?.headSha,
+    reviewHeadSha,
+  );
+  assert.match(
+    releaseSql,
+    /r\.head_sha = \$5::text/u,
+  );
+  assert.deepEqual(releaseValues, [
+    "101",
+    null,
+    null,
+    3,
+    reviewHeadSha,
+  ]);
+});
+
 test("returns a bounded normalized release detail without audit metadata", async () => {
   const statements: string[] = [];
   const pool = createPool(
