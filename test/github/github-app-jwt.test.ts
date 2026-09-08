@@ -23,6 +23,7 @@ const keyPair = generateKeyPairSync(
 
 const config: GitHubAppConfig = {
   provider: "APP",
+  axeEvidenceProvider: "DISABLED",
   clientId: "Iv23unit-test-client",
   privateKey: keyPair.privateKey,
   timeoutMs: 10_000,

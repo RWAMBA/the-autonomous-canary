@@ -20,7 +20,7 @@ import {
   reviewRiskLevelSchema,
 } from "./review-response.js";
 import {
-  externalEvidenceCategorySchema,
+  externalEvidenceAttributionSchema,
 } from "./external-evidence.js";
 
 export const defaultManagementReleasePageSize = 25;
@@ -444,25 +444,9 @@ const deterministicFindingSchema = z
       .max(500)
       .optional(),
     blocking: z.boolean(),
-    evidenceAttribution: z
-      .object({
-        source: z.literal("TRIVY"),
-        sourceVersion: z
-          .string()
-          .trim()
-          .min(1)
-          .max(50),
-        identifier: z
-          .string()
-          .trim()
-          .min(1)
-          .max(200),
-        category:
-          externalEvidenceCategorySchema,
-        generatedAt: reportTimeSchema,
-      })
-      .strict()
-      .optional(),
+    evidenceAttribution:
+      externalEvidenceAttributionSchema
+        .optional(),
     createdAt: reportTimeSchema,
   })
   .strict();

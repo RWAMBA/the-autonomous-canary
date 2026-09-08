@@ -66,7 +66,7 @@ test("publishes only bounded normalized Trivy evidence artifacts", async () => {
     workflow.match(
       /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/gu,
     )?.length,
-    2,
+    3,
   );
   assert.equal(
     workflow.match(

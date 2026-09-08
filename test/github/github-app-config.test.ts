@@ -7,6 +7,7 @@ import {
 } from "node:test";
 
 import {
+  axeEvidenceProviderEnvironmentVariable,
   defaultGitHubApiTimeoutMs,
   githubApiTimeoutEnvironmentVariable,
   githubAppClientIdEnvironmentVariable,
@@ -88,8 +89,45 @@ test("loads a bounded GitHub App configuration", () => {
     defaultGitHubApiTimeoutMs,
   );
   assert.equal(
+    config.axeEvidenceProvider,
+    "DISABLED",
+  );
+  assert.equal(
     Object.isFrozen(config),
     true,
+  );
+});
+
+test("enables Axe evidence only through its explicit provider", () => {
+  const config = loadGitHubConfig(
+    createAppEnvironment({
+      [axeEvidenceProviderEnvironmentVariable]:
+        "AXE",
+    }),
+  );
+
+  if (config.provider !== "APP") {
+    assert.fail(
+      "Expected GitHub App configuration.",
+    );
+  }
+
+  assert.equal(
+    config.axeEvidenceProvider,
+    "AXE",
+  );
+
+  assert.throws(
+    () => loadGitHubConfig(
+      createAppEnvironment({
+        [axeEvidenceProviderEnvironmentVariable]:
+          "ENABLED",
+      }),
+    ),
+    {
+      message:
+        "CANARYGUARD_AXE_EVIDENCE_PROVIDER must be DISABLED or AXE.",
+    },
   );
 });
 

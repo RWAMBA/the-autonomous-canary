@@ -9,7 +9,7 @@ import {
   ciDiagnosticSchema,
 } from "./ci-diagnostic.js";
 import {
-  externalEvidenceCategorySchema,
+  externalEvidenceAttributionSchema,
 } from "./external-evidence.js";
 
 const gitShaPattern = /^[a-f0-9]{7,64}$/i;
@@ -69,25 +69,9 @@ export const reviewFindingSchema = z
       .min(1)
       .max(500)
       .optional(),
-    evidenceAttribution: z
-      .object({
-        source: z.literal("TRIVY"),
-        sourceVersion: z
-          .string()
-          .trim()
-          .min(1)
-          .max(50),
-        identifier: z
-          .string()
-          .trim()
-          .min(1)
-          .max(200),
-        category:
-          externalEvidenceCategorySchema,
-        generatedAt: z.iso.datetime(),
-      })
-      .strict()
-      .optional(),
+    evidenceAttribution:
+      externalEvidenceAttributionSchema
+        .optional(),
   })
   .strict();
 

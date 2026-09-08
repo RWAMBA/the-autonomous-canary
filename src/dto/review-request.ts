@@ -6,8 +6,8 @@ import {
   ciEvidenceSchema,
 } from "./ci-evidence.js";
 import {
-  maximumTrivyEvidenceReports,
-  trivyEvidenceReportSchema,
+  externalEvidenceReportSchema,
+  maximumExternalEvidenceReports,
 } from "./external-evidence.js";
 
 export const maximumDiffLength = 200_000;
@@ -104,12 +104,14 @@ export const reviewEvidenceWithoutCiSchema = z
       .max(maximumSecurityFindings)
       .default([]),
     externalEvidence: z
-      .array(trivyEvidenceReportSchema)
-      .max(maximumTrivyEvidenceReports)
+      .array(externalEvidenceReportSchema)
+      .max(maximumExternalEvidenceReports)
       .default([])
       .superRefine((reports, context) => {
         const targets = reports.map(
-          (report) => report.scanTarget,
+          (report) => report.source === "TRIVY"
+            ? `${report.source}:${report.scanTarget}`
+            : `${report.source}:${report.pagePath}`,
         );
 
         if (
@@ -119,7 +121,7 @@ export const reviewEvidenceWithoutCiSchema = z
           context.addIssue({
             code: "custom",
             message:
-              "External evidence must contain at most one report for each scan target.",
+              "External evidence must contain at most one report for each source target.",
           });
         }
       }),

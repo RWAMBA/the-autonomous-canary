@@ -210,6 +210,28 @@ test("accepts bounded normalized management responses", () => {
             createdAt:
               "2026-09-07T18:42:08.000Z",
           },
+          {
+            code:
+              "AXE_ACCESSIBILITY_VIOLATION_CRITICAL",
+            severity: "CRITICAL",
+            title:
+              "button-name affects 1 element",
+            explanation:
+              "Axe reported an accessibility violation.",
+            filePath: "/management",
+            blocking: true,
+            evidenceAttribution: {
+              source: "AXE",
+              sourceVersion: "4.13.0",
+              identifier: "button-name",
+              category:
+                "ACCESSIBILITY_VIOLATION",
+              generatedAt:
+                "2026-09-08T10:00:00.000Z",
+            },
+            createdAt:
+              "2026-09-08T10:00:01.000Z",
+          },
         ],
         truncated: false,
       },

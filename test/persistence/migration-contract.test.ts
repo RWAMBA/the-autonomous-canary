@@ -29,6 +29,18 @@ const externalEvidenceMigrationUrl =
     import.meta.url,
   );
 
+const accessibilityEvidenceMigrationUrl =
+  new URL(
+    "../../db/migrations/005_accessibility_evidence_attribution.sql",
+    import.meta.url,
+  );
+
+const accessibilityEvidenceRollbackUrl =
+  new URL(
+    "../../db/rollbacks/005_accessibility_evidence_attribution.sql",
+    import.meta.url,
+  );
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -198,5 +210,73 @@ test("adds bounded external evidence attribution without raw report storage", as
   assert.doesNotMatch(
     migration,
     /raw_(?:report|payload|log|prompt|model|diff)|api_key|private_key/iu,
+  );
+});
+
+test("extends attribution only for normalized Axe accessibility evidence", async () => {
+  const migration = await readFile(
+    accessibilityEvidenceMigrationUrl,
+    "utf8",
+  );
+
+  assert.match(
+    migration,
+    /DROP CONSTRAINT IF EXISTS deterministic_findings_evidence_attribution_check/u,
+  );
+  assert.match(
+    migration,
+    /evidence_source = 'AXE'/u,
+  );
+  assert.match(
+    migration,
+    /evidence_category = 'ACCESSIBILITY_VIOLATION'/u,
+  );
+  assert.match(
+    migration,
+    /005_accessibility_evidence_attribution/u,
+  );
+  assert.match(
+    migration,
+    /IF NOT EXISTS[\s\S]+WHERE version = '005_accessibility_evidence_attribution'/u,
+  );
+  assert.doesNotMatch(
+    migration,
+    /raw_(?:payload|report|html|selector|remediation)|api_key|private_key/iu,
+  );
+});
+
+test("prepares a finding-preserving rollback for the previous reader", async () => {
+  const rollback = await readFile(
+    accessibilityEvidenceRollbackUrl,
+    "utf8",
+  );
+
+  assert.match(
+    rollback,
+    /UPDATE deterministic_findings[\s\S]+WHERE evidence_source = 'AXE'/u,
+  );
+  assert.match(
+    rollback,
+    /pg_advisory_xact_lock\(1548624771\)/u,
+  );
+  assert.match(
+    rollback,
+    /evidence_source = NULL/u,
+  );
+  assert.match(
+    rollback,
+    /evidence_source IS NOT NULL[\s\S]+evidence_source = 'TRIVY'/u,
+  );
+  assert.match(
+    rollback,
+    /evidence_category IS NOT NULL[\s\S]+evidence_category IN/u,
+  );
+  assert.match(
+    rollback,
+    /DELETE FROM schema_migrations[\s\S]+005_accessibility_evidence_attribution/u,
+  );
+  assert.doesNotMatch(
+    rollback,
+    /DELETE FROM deterministic_findings/iu,
   );
 });

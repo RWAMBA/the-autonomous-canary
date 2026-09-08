@@ -27,9 +27,12 @@ import type {
   ReviewResponseDto,
 } from "../dto/review-response.js";
 import {
+  parseAxeEvidenceReport,
   parseTrivyEvidenceReport,
 } from "../dto/external-evidence.js";
 import type {
+  AxeEvidenceReportDto,
+  ExternalEvidenceReportDto,
   TrivyEvidenceReportDto,
 } from "../dto/external-evidence.js";
 import {
@@ -68,6 +71,15 @@ export const maximumExternalEvidenceBytes =
 
 export const trivyEvidenceArtifactFileName =
   "canaryguard-trivy-evidence.json";
+
+export const axeEvidenceArtifactFileName =
+  "canaryguard-axe-evidence.json";
+
+export const axeEvidenceArtifactName =
+  "canaryguard-axe-accessibility-v1";
+
+export const axeEvidencePagePath =
+  "/management";
 
 const trivyArtifactTargets = [
   {
@@ -499,7 +511,7 @@ export interface GitHubExternalEvidenceCollector {
   collectExternalEvidence(
     request: GitHubCiCollectionRequest,
   ): Promise<
-    readonly TrivyEvidenceReportDto[]
+    readonly ExternalEvidenceReportDto[]
   >;
 }
 
@@ -1226,16 +1238,12 @@ GitHubCheckRunPublisher {
     }
   }
 
-  private async collectNamedTrivyArtifact(
+  private async downloadNamedArtifact(
     request: GitHubCiCollectionRequest,
     installationToken: string,
-    target:
-      typeof trivyArtifactTargets[number],
-  ): Promise<
-    TrivyEvidenceReportDto | undefined
-  > {
-    const artifactName =
-      target.artifactName;
+    artifactName: string,
+    artifactFileName: string,
+  ): Promise<Buffer | undefined> {
     const path =
       `/repos/${encodePathPart(request.repository.owner)}/${encodePathPart(request.repository.name)}/actions/runs/${encodePathPart(request.runId)}/artifacts?name=${encodePathPart(artifactName)}&per_page=100`;
     const artifactList =
@@ -1294,9 +1302,33 @@ GitHubCheckRunPublisher {
     const evidenceBytes =
       extractSingleArtifactFile(
         archive,
-        trivyEvidenceArtifactFileName,
+        artifactFileName,
         maximumExternalEvidenceBytes,
       );
+
+    return evidenceBytes;
+  }
+
+  private async collectNamedTrivyArtifact(
+    request: GitHubCiCollectionRequest,
+    installationToken: string,
+    target:
+      typeof trivyArtifactTargets[number],
+  ): Promise<
+    TrivyEvidenceReportDto | undefined
+  > {
+    const evidenceBytes =
+      await this.downloadNamedArtifact(
+        request,
+        installationToken,
+        target.artifactName,
+        trivyEvidenceArtifactFileName,
+      );
+
+    if (evidenceBytes === undefined) {
+      return undefined;
+    }
+
     const report = parseTrivyEvidenceReport(
       JSON.parse(evidenceBytes.toString("utf8")),
     );
@@ -1330,10 +1362,60 @@ GitHubCheckRunPublisher {
     return report;
   }
 
+  private async collectAxeArtifact(
+    request: GitHubCiCollectionRequest,
+    installationToken: string,
+  ): Promise<
+    AxeEvidenceReportDto | undefined
+  > {
+    const evidenceBytes =
+      await this.downloadNamedArtifact(
+        request,
+        installationToken,
+        axeEvidenceArtifactName,
+        axeEvidenceArtifactFileName,
+      );
+
+    if (evidenceBytes === undefined) {
+      return undefined;
+    }
+
+    const report = parseAxeEvidenceReport(
+      JSON.parse(evidenceBytes.toString("utf8")),
+    );
+
+    if (
+      report.pagePath !== axeEvidencePagePath
+      || report.workflow.runId
+        !== request.runId
+      || (
+        request.expectedRunAttempt
+          !== undefined
+        && report.workflow.runAttempt
+          !== request.expectedRunAttempt
+      )
+      || !repositoriesMatch(
+        `${report.repository.owner}/${report.repository.name}`,
+        request.repository.owner,
+        request.repository.name,
+      )
+      || !shaValuesMatch(
+        report.workflow.headSha,
+        request.expectedHeadSha,
+      )
+    ) {
+      throw new Error(
+        "Axe evidence does not match the requested workflow identity.",
+      );
+    }
+
+    return report;
+  }
+
   async collectExternalEvidence(
     input: GitHubCiCollectionRequest,
   ): Promise<
-    readonly TrivyEvidenceReportDto[]
+    readonly ExternalEvidenceReportDto[]
   > {
     const request =
       collectionRequestSchema.parse(input);
@@ -1374,8 +1456,8 @@ GitHubCheckRunPublisher {
             actions: "read",
           },
         );
-      const reports = await Promise.all(
-        trivyArtifactTargets.map(
+      const reports = await Promise.all([
+        ...trivyArtifactTargets.map(
           (target) =>
             this.collectNamedTrivyArtifact(
               request,
@@ -1383,12 +1465,23 @@ GitHubCheckRunPublisher {
               target,
             ),
         ),
-      );
+        ...(
+          this.config.axeEvidenceProvider
+            === "AXE"
+            ? [
+                this.collectAxeArtifact(
+                  request,
+                  installationToken,
+                ),
+              ]
+            : []
+        ),
+      ]);
 
       return reports.filter(
         (
           report,
-        ): report is TrivyEvidenceReportDto =>
+        ): report is ExternalEvidenceReportDto =>
           report !== undefined,
       );
     } catch (error) {

@@ -169,6 +169,63 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Start dashboard accessibility target
+        env:
+          CANARYGUARD_API_KEY: ci-only-review-api-key-000000000000
+        shell: bash
+        run: |
+          node --enable-source-maps dist/server.js > .canaryguard-accessibility-server.log 2>&1 &
+          echo "$!" > .canaryguard-accessibility-server.pid
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/management >/dev/null; then
+              exit 0
+            fi
+
+            sleep 1
+          done
+
+          cat .canaryguard-accessibility-server.log
+          exit 1
+
+      - name: Scan management dashboard accessibility
+        run: |
+          npx --no-install axe \
+            --stdout \
+            --tags wcag2a,wcag2aa \
+            --timeout=60 \
+            --chromedriver-path "${CHROMEWEBDRIVER}/chromedriver" \
+            http://127.0.0.1:3000/management \
+            > .canaryguard-axe-accessibility.json
+
+      - name: Normalize accessibility evidence
+        if: ${{ always() && hashFiles('.canaryguard-axe-accessibility.json') != '' }}
+        env:
+          CANARYGUARD_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p canaryguard-evidence
+          npx --no-install tsx scripts/normalize-axe-evidence.ts \
+            --input .canaryguard-axe-accessibility.json \
+            --output canaryguard-evidence/canaryguard-axe-evidence.json \
+            --page-path /management
+
+      - name: Upload accessibility evidence
+        if: ${{ always() && hashFiles('canaryguard-evidence/canaryguard-axe-evidence.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canaryguard-axe-accessibility-v1
+          path: canaryguard-evidence/canaryguard-axe-evidence.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop dashboard accessibility target
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ -f .canaryguard-accessibility-server.pid ]]; then
+            kill "$(cat .canaryguard-accessibility-server.pid)" 2>/dev/null || true
+          fi
+
   container:
     name: Build and verify container stack
     needs: quality

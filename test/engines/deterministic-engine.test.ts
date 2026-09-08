@@ -10,6 +10,8 @@ import type {
   CiEvidenceDto,
 } from "../../src/dto/ci-evidence.js";
 import type {
+  AxeEvidenceReportDto,
+  ExternalEvidenceReportDto,
   TrivyEvidenceReportDto,
 } from "../../src/dto/external-evidence.js";
 import {
@@ -44,7 +46,49 @@ interface RequestOptions {
     readonly SecurityFindingInput[];
   readonly ci?: CiEvidenceDto;
   readonly externalEvidence?:
-    readonly TrivyEvidenceReportDto[];
+    readonly ExternalEvidenceReportDto[];
+}
+
+function createAxeEvidence(
+  options: {
+    readonly severity?:
+      "HIGH" | "CRITICAL";
+    readonly truncated?: boolean;
+  } = {},
+): AxeEvidenceReportDto {
+  return {
+    schemaVersion:
+      "canaryguard-axe-evidence-v1",
+    source: "AXE",
+    adapterVersion: "1.0.0",
+    scannerVersion: "4.13.0",
+    generatedAt:
+      "2026-09-08T10:00:00.000Z",
+    repository: {
+      owner: "RWAMBA",
+      name: "the-autonomous-canary",
+    },
+    workflow: {
+      runId: 34_212_932_962,
+      runAttempt: 1,
+      headSha: "1234567890abcdef",
+    },
+    pagePath: "/management",
+    findings: [
+      {
+        identifier: "document-title",
+        category:
+          "ACCESSIBILITY_VIOLATION",
+        severity:
+          options.severity ?? "CRITICAL",
+        title:
+          "document-title affects 1 element",
+        pagePath: "/management",
+        affectedElements: 1,
+      },
+    ],
+    truncated: options.truncated ?? false,
+  };
 }
 
 function createCiEvidence(
@@ -315,6 +359,57 @@ test("raises risk when Trivy evidence was truncated without blocking", () => {
   assert.deepEqual(
     assessment.blockingRuleCodes,
     [],
+  );
+});
+
+test("blocks a critical attributed Axe accessibility finding", () => {
+  const assessment =
+    new DefaultDeterministicEngine()
+      .analyze(createRequest({
+        externalEvidence: [
+          createAxeEvidence(),
+        ],
+      }));
+
+  const finding = assessment.findings[0];
+
+  assert.ok(finding);
+  assert.equal(
+    finding.code,
+    "AXE_ACCESSIBILITY_VIOLATION_CRITICAL",
+  );
+  assert.equal(finding.file, "/management");
+  assert.equal(finding.blocking, true);
+  assert.deepEqual(finding.attribution, {
+    source: "AXE",
+    sourceVersion: "1.0.0",
+    identifier: "document-title",
+    category:
+      "ACCESSIBILITY_VIOLATION",
+    generatedAt:
+      "2026-09-08T10:00:00.000Z",
+  });
+});
+
+test("raises risk when Axe evidence was truncated without blocking", () => {
+  const assessment =
+    new DefaultDeterministicEngine()
+      .analyze(createRequest({
+        externalEvidence: [
+          createAxeEvidence({
+            severity: "HIGH",
+            truncated: true,
+          }),
+        ],
+      }));
+
+  assert.equal(
+    assessment.findings[1]?.code,
+    "AXE_EVIDENCE_TRUNCATED",
+  );
+  assert.equal(
+    assessment.findings[1]?.blocking,
+    false,
   );
 });
 
