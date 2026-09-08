@@ -475,6 +475,32 @@ const checkRunListSchema = z
   })
   .passthrough();
 
+const associatedPullRequestsSchema = z
+  .array(
+    z.object({
+      number: z
+        .number()
+        .int()
+        .positive()
+        .max(maximumGitHubIdentifier),
+      state: z.literal("closed"),
+      merged_at: z.iso.datetime(),
+      head: z.object({
+        sha: gitShaSchema,
+      }).passthrough(),
+      base: z.object({
+        repo: z.object({
+          full_name: z
+            .string()
+            .trim()
+            .min(3)
+            .max(300),
+        }).passthrough(),
+      }).passthrough(),
+    }).passthrough(),
+  )
+  .max(2);
+
 export type GitHubCiCollectionRequest =
   z.infer<
     typeof collectionRequestSchema
@@ -525,6 +551,19 @@ export interface GitHubCheckRunPublisher {
   publishCheckRun(
     request: GitHubCheckRunPublicationRequest,
   ): Promise<GitHubCheckRunPublication>;
+}
+
+export interface GitHubDeploymentCorrelationDiscoverer {
+  discoverMergedPullRequest(input: {
+    readonly repository: {
+      readonly owner: string;
+      readonly name: string;
+    };
+    readonly commitSha: string;
+  }): Promise<{
+    readonly pullRequestNumber: number;
+    readonly headSha: string;
+  }>;
 }
 
 export interface GitHubApiClientOptions {
@@ -713,7 +752,8 @@ implements
 GitHubCiEvidenceCollector,
 GitHubExternalEvidenceCollector,
 GitHubPullRequestChangeCollector,
-GitHubCheckRunPublisher {
+GitHubCheckRunPublisher,
+GitHubDeploymentCorrelationDiscoverer {
   private readonly config:
     GitHubAppConfig;
 
@@ -1233,6 +1273,77 @@ GitHubCheckRunPublisher {
           }),
         ),
       });
+    } catch (error) {
+      throw createProviderError(error);
+    }
+  }
+
+  async discoverMergedPullRequest(input: {
+    readonly repository: {
+      readonly owner: string;
+      readonly name: string;
+    };
+    readonly commitSha: string;
+  }): Promise<{
+    readonly pullRequestNumber: number;
+    readonly headSha: string;
+  }> {
+    const repository =
+      reviewRepositorySchema.parse(
+        input.repository,
+      );
+    const commitSha =
+      gitShaSchema.parse(input.commitSha);
+    const appJwt = createGitHubAppJwt(
+      this.config,
+      this.clock,
+    );
+    const installationId =
+      await this.getInstallationId(
+        repository.owner,
+        repository.name,
+        appJwt,
+      );
+    const installationToken =
+      await this.createInstallationToken(
+        installationId,
+        repository.name,
+        appJwt,
+        {
+          pull_requests: "read",
+        },
+      );
+
+    try {
+      const pullRequests =
+        associatedPullRequestsSchema.parse(
+          await this.requestJson(
+            `/repos/${encodePathPart(repository.owner)}/${encodePathPart(repository.name)}/commits/${encodePathPart(commitSha)}/pulls?per_page=2`,
+            installationToken,
+            {
+              method: "GET",
+            },
+          ),
+        );
+      const matches = pullRequests.filter(
+        (pullRequest) => repositoriesMatch(
+          pullRequest.base.repo.full_name,
+          repository.owner,
+          repository.name,
+        ),
+      );
+
+      if (matches.length !== 1) {
+        throw new Error(
+          "GitHub correlation requires exactly one merged pull request for the deployed commit.",
+        );
+      }
+
+      return {
+        pullRequestNumber:
+          matches[0]!.number,
+        headSha: matches[0]!.head.sha,
+      };
     } catch (error) {
       throw createProviderError(error);
     }

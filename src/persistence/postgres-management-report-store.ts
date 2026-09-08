@@ -606,6 +606,10 @@ implements ManagementReportStore {
           `${releaseSummarySelect}
            WHERE r.repository_id = $1
              AND (
+               $5::text IS NULL
+               OR r.head_sha = $5::text
+             )
+             AND (
                $2::timestamptz IS NULL
                OR r.created_at < $2::timestamptz
                OR (
@@ -622,6 +626,7 @@ implements ManagementReportStore {
             query.cursor?.createdAt ?? null,
             query.cursor?.releaseId ?? null,
             query.limit + 1,
+            query.headSha ?? null,
           ],
         );
 

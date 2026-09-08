@@ -35,6 +35,29 @@ test("parses a repository-scoped release list query with a bounded default", () 
   );
 });
 
+test("parses an exact head-SHA release lookup", () => {
+  assert.deepEqual(
+    parseManagementReleaseListQuery(
+      new URLSearchParams({
+        repositoryOwner: "RWAMBA",
+        repositoryName:
+          "the-autonomous-canary",
+        headSha:
+          "3128a8c383889ae107e9a999778be70a2263a21a",
+        limit: "2",
+      }),
+    ),
+    {
+      repositoryOwner: "RWAMBA",
+      repositoryName:
+        "the-autonomous-canary",
+      headSha:
+        "3128a8c383889ae107e9a999778be70a2263a21a",
+      limit: 2,
+    },
+  );
+});
+
 test("round-trips an opaque repository-bound release cursor", () => {
   const token = createManagementReleaseCursor({
     version: 1,
@@ -91,6 +114,34 @@ test("rejects a cursor from another repository", () => {
         repositoryName:
           "the-autonomous-canary",
         cursor: token,
+      }),
+    ),
+    {
+      name: "ZodError",
+    },
+  );
+});
+
+test("rejects a cursor on an exact head-SHA lookup", () => {
+  const cursor = createManagementReleaseCursor({
+    version: 1,
+    repositoryOwner: "RWAMBA",
+    repositoryName:
+      "the-autonomous-canary",
+    createdAt:
+      "2026-08-30T18:47:11.000Z",
+    releaseId,
+  });
+
+  assert.throws(
+    () => parseManagementReleaseListQuery(
+      new URLSearchParams({
+        repositoryOwner: "RWAMBA",
+        repositoryName:
+          "the-autonomous-canary",
+        headSha:
+          "3128a8c383889ae107e9a999778be70a2263a21a",
+        cursor,
       }),
     ),
     {

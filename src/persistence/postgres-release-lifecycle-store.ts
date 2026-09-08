@@ -756,7 +756,10 @@ implements ReleaseLifecycleStore {
             ],
           );
 
-          if (payload.action === "closed") {
+          if (
+            payload.action === "closed"
+            && !payload.pull_request.merged
+          ) {
             await client.query(
               `UPDATE releases
                SET status = 'CANCELLED',
@@ -839,6 +842,8 @@ implements ReleaseLifecycleStore {
               releaseId,
               JSON.stringify({
                 action: payload.action,
+                merged:
+                  payload.pull_request.merged,
                 pullRequestNumber:
                   payload.number,
               }),

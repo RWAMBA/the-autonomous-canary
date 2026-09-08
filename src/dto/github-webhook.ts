@@ -143,6 +143,7 @@ export const githubPullRequestWebhookSchema =
             "open",
             "closed",
           ]),
+          merged: z.boolean(),
           draft: z.boolean(),
           title: z
             .string()
@@ -191,6 +192,27 @@ export const githubPullRequestWebhookSchema =
           ],
           message:
             "A closed action must contain a closed pull request.",
+        });
+      }
+
+      if (
+        value.pull_request.merged
+        && (
+          value.action !== "closed"
+          || value.pull_request.state
+            !== "closed"
+          || value.pull_request.closed_at
+            === null
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "pull_request",
+            "merged",
+          ],
+          message:
+            "A merged pull request must contain a closed action, closed state, and closure time.",
         });
       }
     });

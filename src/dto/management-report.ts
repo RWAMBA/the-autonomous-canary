@@ -107,6 +107,7 @@ const managementReleaseListQuerySchema = z
   .object({
     repositoryOwner: repositoryPartSchema,
     repositoryName: repositoryPartSchema,
+    headSha: gitShaSchema.optional(),
     limit: z.coerce
       .number()
       .int()
@@ -117,6 +118,18 @@ const managementReleaseListQuerySchema = z
   })
   .strict()
   .superRefine((query, context) => {
+    if (
+      query.headSha !== undefined
+      && query.cursor !== undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["cursor"],
+        message:
+          "An exact head-SHA lookup cannot use a cursor.",
+      });
+    }
+
     if (
       query.cursor === undefined
       || typeof query.cursor.repositoryOwner
@@ -181,6 +194,7 @@ export interface ManagementReleaseListQuery {
   readonly repositoryOwner: string;
   readonly repositoryName: string;
   readonly limit: number;
+  readonly headSha?: string;
   readonly cursor?: ManagementReleaseCursor;
 }
 
@@ -204,6 +218,11 @@ export function parseManagementReleaseListQuery(
     repositoryOwner: query.repositoryOwner,
     repositoryName: query.repositoryName,
     limit: query.limit,
+    ...(query.headSha === undefined
+      ? {}
+      : {
+          headSha: query.headSha,
+        }),
     ...(query.cursor === undefined
       ? {}
       : {

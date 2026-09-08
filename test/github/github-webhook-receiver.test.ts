@@ -755,6 +755,7 @@ test("accepts a direct pull_request event only through durable lifecycle persist
     pull_request: {
       number: 21,
       state: "open",
+      merged: false,
       draft: false,
       title:
         "Persist lifecycle records",
