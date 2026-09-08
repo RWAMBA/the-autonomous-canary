@@ -113,13 +113,13 @@ The review-creation, deployment-event, and management-reporting endpoints requir
 Authorization: Bearer <CANARYGUARD_API_KEY>
 ```
 
-The server reads the expected token from:
+In compatibility mode, the server reads the expected token from:
 
 ```text
 CANARYGUARD_API_KEY
 ```
 
-The configured token must:
+Legacy and tenant credentials must:
 
 - contain between 32 and 512 bytes
 - contain no whitespace
@@ -127,6 +127,35 @@ The configured token must:
 - never be committed to Git
 
 Authentication comparison uses SHA-256 digests and Node.js timing-safe comparison.
+
+### Tenant-scoped authorization
+
+`CANARYGUARD_AUTHORIZATION_PROVIDER=LEGACY` is the compatibility default and continues to use the single `CANARYGUARD_API_KEY`. After migration `006_tenant_authorization_foundation` is applied, `POSTGRES` mode authenticates digest-only tenant credentials and enforces these roles:
+
+| Role | Review write | Deployment write | Report read |
+|---|---:|---:|---:|
+| `ADMIN` | Yes | Yes | Yes |
+| `AUTOMATION` | Yes | Yes | Yes |
+| `VIEWER` | No | No | Yes |
+
+Repository grants are explicit and tenant-bound. A valid credential requesting an ungranted repository or release receives the same `404 RESOURCE_NOT_FOUND` response as an absent resource. Authorization decisions are recorded without bearer-token content.
+
+Provision the first tenant only from a protected operator shell after the repository has been observed by the GitHub integration:
+
+```bash
+export CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES
+export DATABASE_URL='use-a-protected-runtime-secret'
+export CANARYGUARD_TENANT_SLUG='example-team'
+export CANARYGUARD_TENANT_DISPLAY_NAME='Example Team'
+export CANARYGUARD_TENANT_CREDENTIAL_NAME='production-automation'
+export CANARYGUARD_TENANT_CREDENTIAL_ROLE='AUTOMATION'
+export CANARYGUARD_TENANT_API_KEY="$(openssl rand -hex 32)"
+export CANARYGUARD_REPOSITORY_OWNER='RWAMBA'
+export CANARYGUARD_REPOSITORY_NAME='the-autonomous-canary'
+npm run tenant:provision
+```
+
+The command outputs identifiers and the grant, never the raw key. Store the generated key before closing the shell. To activate safely: apply migration 006, deploy the new revision in `LEGACY` mode, provision and verify credentials, replace the `CANARYGUARD_API_KEY` used by API clients and deployment tooling with the provisioned tenant key, then set the server provider to `POSTGRES` and redeploy. Do not discard the legacy key until the PostgreSQL-mode verification passes. To roll back application behavior, restore the legacy key and `LEGACY` provider together and redeploy the previous revision; the additive tenant tables can remain in place.
 
 The webhook endpoint does not use the review bearer token. It authenticates GitHub by verifying `X-Hub-Signature-256` over the exact raw request bytes with the separately configured `GITHUB_WEBHOOK_SECRET`. Signature comparison uses HMAC-SHA256 and Node.js timing-safe comparison.
 
@@ -612,7 +641,7 @@ Render discovery does not trigger, observe, promote, cancel, or roll back a depl
 
 ## Query management release reports
 
-Open `http://127.0.0.1:3000/management` for the read-only management dashboard. The public shell contains no release data. Enter a repository owner, repository name, and the existing service-level API key to load evidence from the management reporting endpoints.
+Open `http://127.0.0.1:3000/management` for the read-only management dashboard. The public shell contains no release data. Enter a repository owner, repository name, and an authorized legacy or tenant bearer token to load evidence from the management reporting endpoints.
 
 The dashboard presents release risk, policy decisions and overrides, CI diagnoses, model and prompt versions, latency and cost accounting, deployment attempts, canary observations, outcomes, rollbacks, and audit history. Release history uses the API's repository-bound keyset cursor to load older records. Each detail section preserves the API's explicit truncation indicator.
 
@@ -1259,6 +1288,10 @@ src/
 │   └── policy/
 ├── evidence/
 │   └── trivy-evidence-adapter.ts
+├── authorization/
+│   ├── postgres-tenant-authorization.ts
+│   ├── tenant-authorization-config.ts
+│   └── tenant-authorization.ts
 ├── github/
 │   ├── github-api-client.ts
 │   ├── github-artifact-archive.ts
@@ -1304,8 +1337,8 @@ The current MVP intentionally has these limitations:
 - the GitHub App adapter collects workflow and job metadata but does not download logs
 - probable-cause detail is bounded by the evidence supplied; GitHub App reviews without collected logs may have only job- and step-level evidence
 - persistence is optional and requires an operator-provisioned PostgreSQL database and migration step
-- authentication uses one service-level API key
-- tenant accounts and role-based authorization are not implemented
+- legacy mode uses one service-level API key; PostgreSQL mode supports operator-provisioned tenant credentials and repository grants
+- self-service tenant signup, billing, invitations, and credential rotation are not implemented
 - request quotas and distributed rate limiting are not implemented
 - process-local replay and queue behavior remains available only when persistence is intentionally disabled
 - automated workflow processing requires exactly one pull request in the completed `workflow_run` payload

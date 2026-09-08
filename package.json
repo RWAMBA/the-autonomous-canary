@@ -15,7 +15,8 @@
     "start": "node --enable-source-maps dist/server.js",
     "routing:apply": "tsx scripts/apply-routing.ts",
     "rollout:canary": "tsx scripts/run-canary-rollout.ts",
-    "deployment:discover:render": "tsx scripts/discover-render-deployment.ts"
+    "deployment:discover:render": "tsx scripts/discover-render-deployment.ts",
+    "tenant:provision": "tsx scripts/provision-tenant.ts"
   },
   "devDependencies": {
     "@axe-core/cli": "4.13.0",

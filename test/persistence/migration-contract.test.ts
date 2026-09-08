@@ -41,6 +41,12 @@ const accessibilityEvidenceRollbackUrl =
     import.meta.url,
   );
 
+const tenantAuthorizationMigrationUrl =
+  new URL(
+    "../../db/migrations/006_tenant_authorization_foundation.sql",
+    import.meta.url,
+  );
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -278,5 +284,34 @@ test("prepares a finding-preserving rollback for the previous reader", async () 
   assert.doesNotMatch(
     rollback,
     /DELETE FROM deterministic_findings/iu,
+  );
+});
+
+test("adds tenant-scoped credential authorization without storing raw secrets", async () => {
+  const migration = await readFile(
+    tenantAuthorizationMigrationUrl,
+    "utf8",
+  );
+
+  for (const table of [
+    "tenants",
+    "tenant_api_credentials",
+    "tenant_repository_access",
+    "tenant_authorization_audit_events",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`, "u"),
+    );
+  }
+
+  assert.match(migration, /key_sha256 char\(64\) NOT NULL UNIQUE/u);
+  assert.match(migration, /role IN \('ADMIN', 'AUTOMATION', 'VIEWER'\)/u);
+  assert.match(migration, /permission IN \('REVIEW_WRITE', 'DEPLOYMENT_WRITE', 'REPORT_READ'\)/u);
+  assert.match(migration, /PRIMARY KEY \(tenant_id, repository_id\)/u);
+  assert.match(migration, /006_tenant_authorization_foundation/u);
+  assert.doesNotMatch(
+    migration,
+    /raw_(?:credential|secret|token)|private_key|key_value/iu,
   );
 });

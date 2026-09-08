@@ -175,3 +175,45 @@ test("does not run review analysis when GitHub evidence collection fails", async
 
   assert.equal(reviewCalls, 0);
 });
+
+test("checks tenant repository access before collecting GitHub evidence", async () => {
+  let collectionCalls = 0;
+  const denied = new Error("repository denied");
+  const controller = new DefaultGitHubReviewController({
+    evidenceCollector: {
+      collect: () => {
+        collectionCalls += 1;
+        throw new Error("unexpected collection");
+      },
+    },
+    externalEvidenceCollector: {
+      collectExternalEvidence: () => Promise.resolve([]),
+    },
+    reviewController: {
+      createReview: () => {
+        throw new Error("unexpected review");
+      },
+    },
+    resourceAuthorizer: {
+      assertRepositoryAccess: () => Promise.reject(denied),
+      assertReleaseAccess: () => Promise.resolve(),
+    },
+  });
+
+  await assert.rejects(
+    controller.createReview(
+      createRequest(),
+      {
+        authorizationContext: {
+          provider: "POSTGRES",
+          tenantId: reviewId,
+          credentialId:
+            "223e4567-e89b-42d3-a456-426614174000",
+          role: "AUTOMATION",
+        },
+      },
+    ),
+    denied,
+  );
+  assert.equal(collectionCalls, 0);
+});

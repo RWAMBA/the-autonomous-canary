@@ -49,6 +49,13 @@ import {
 import {
   createReviewApiKeyAuthenticator,
 } from "../src/middleware/require-review-api-key.js";
+import type {
+  TenantAuthorizationContext,
+  TenantPermission,
+} from "../src/authorization/tenant-authorization.js";
+import type {
+  ReviewPersistenceContext,
+} from "../src/persistence/release-lifecycle-store.js";
 
 const reviewApiKey =
   "r".repeat(32);
@@ -944,6 +951,71 @@ test("GET /work exposes deterministic workload outcomes", async () => {
     healthResponse.status,
     200,
   );
+});
+
+test("POST /reviews requests review permission and propagates tenant identity", async () => {
+  let permission: TenantPermission | undefined;
+  let context: ReviewPersistenceContext | undefined;
+  const tenantContext: TenantAuthorizationContext = {
+    provider: "POSTGRES",
+    tenantId: reviewId,
+    credentialId:
+      "223e4567-e89b-42d3-a456-426614174000",
+    role: "AUTOMATION",
+  };
+  const tenantServer = createServer(
+    createRequestHandler(
+      {
+        channel: "canary",
+        commitSha: "abc123",
+        version: "1.2.3",
+      },
+      createFailureSimulator(0),
+      {
+        authenticateReviewRequest: async (
+          _request,
+          requestedPermission,
+        ) => {
+          permission = requestedPermission;
+          return tenantContext;
+        },
+        reviewController: {
+          createReview: (input, requestContext) => {
+            context = requestContext;
+            return reviewController.createReview(input);
+          },
+        },
+      },
+    ),
+  );
+
+  await new Promise<void>((resolve) => {
+    tenantServer.listen(0, "127.0.0.1", resolve);
+  });
+  const address = tenantServer.address();
+  assert.notEqual(address, null);
+  assert.equal(typeof address, "object");
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${(address as { port: number }).port}/reviews`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(createReviewRequest()),
+      },
+    );
+    assert.equal(response.status, 201);
+    assert.equal(permission, "REVIEW_WRITE");
+    assert.deepEqual(context?.authorizationContext, tenantContext);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      tenantServer.close((error) => {
+        if (error === undefined) resolve();
+        else reject(error);
+      });
+    });
+  }
 });
 
 test("POST /reviews processes a valid release review", async () => {

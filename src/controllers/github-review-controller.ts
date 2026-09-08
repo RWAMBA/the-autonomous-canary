@@ -11,10 +11,20 @@ import type {
 import type {
   ReviewController,
 } from "./review-controller.js";
+import type {
+  ReviewPersistenceContext,
+} from "../persistence/release-lifecycle-store.js";
+import {
+  allowLegacyTenantResources,
+} from "../authorization/tenant-authorization.js";
+import type {
+  TenantResourceAuthorizer,
+} from "../authorization/tenant-authorization.js";
 
 export interface GitHubReviewController {
   createReview(
     input: unknown,
+    context?: ReviewPersistenceContext,
   ): Promise<ReviewResponseDto>;
 }
 
@@ -25,6 +35,8 @@ export interface GitHubReviewControllerOptions {
     GitHubExternalEvidenceCollector;
   readonly reviewController:
     ReviewController;
+  readonly resourceAuthorizer?:
+    TenantResourceAuthorizer;
 }
 
 export class DefaultGitHubReviewController
@@ -37,6 +49,8 @@ implements GitHubReviewController {
 
   private readonly externalEvidenceCollector:
     GitHubExternalEvidenceCollector;
+  private readonly resourceAuthorizer:
+    TenantResourceAuthorizer;
 
   constructor(
     options:
@@ -48,13 +62,26 @@ implements GitHubReviewController {
       options.externalEvidenceCollector;
     this.reviewController =
       options.reviewController;
+    this.resourceAuthorizer =
+      options.resourceAuthorizer
+      ?? allowLegacyTenantResources;
   }
 
   async createReview(
     input: unknown,
+    context: ReviewPersistenceContext = {},
   ): Promise<ReviewResponseDto> {
     const request =
       parseGitHubReviewRequest(input);
+
+    if (context.authorizationContext !== undefined) {
+      await this.resourceAuthorizer
+        .assertRepositoryAccess(
+          context.authorizationContext,
+          request.repository,
+          "REVIEW_WRITE",
+        );
+    }
 
     const ci =
       await this.evidenceCollector
@@ -78,6 +105,11 @@ implements GitHubReviewController {
             ci.runAttempt,
         });
 
+    const {
+      authorizationContext: _authorizationContext,
+      ...reviewContext
+    } = context;
+
     return this.reviewController
       .createReview({
         repository:
@@ -88,6 +120,6 @@ implements GitHubReviewController {
           ci,
           externalEvidence,
         },
-      });
+      }, reviewContext);
   }
 }

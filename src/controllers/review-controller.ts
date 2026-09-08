@@ -43,6 +43,12 @@ import type {
   ReviewLifecycleRecorder,
   ReviewPersistenceContext,
 } from "../persistence/release-lifecycle-store.js";
+import {
+  allowLegacyTenantResources,
+} from "../authorization/tenant-authorization.js";
+import type {
+  TenantResourceAuthorizer,
+} from "../authorization/tenant-authorization.js";
 
 const reviewIdSchema = z.uuid();
 
@@ -68,6 +74,8 @@ export interface ReviewControllerOptions {
     ReviewIdFactory;
   readonly lifecycleRecorder?:
     ReviewLifecycleRecorder;
+  readonly resourceAuthorizer?:
+    TenantResourceAuthorizer;
 }
 
 function defaultCreateReviewId(): string {
@@ -93,6 +101,8 @@ implements ReviewController {
 
   private readonly lifecycleRecorder:
     ReviewLifecycleRecorder | undefined;
+  private readonly resourceAuthorizer:
+    TenantResourceAuthorizer;
 
   constructor(
     options: ReviewControllerOptions = {},
@@ -119,6 +129,9 @@ implements ReviewController {
 
     this.lifecycleRecorder =
       options.lifecycleRecorder;
+    this.resourceAuthorizer =
+      options.resourceAuthorizer
+      ?? allowLegacyTenantResources;
   }
 
   async createReview(
@@ -127,6 +140,15 @@ implements ReviewController {
   ): Promise<ReviewResponseDto> {
     const request =
       parseReviewRequest(input);
+
+    if (context.authorizationContext !== undefined) {
+      await this.resourceAuthorizer
+        .assertRepositoryAccess(
+          context.authorizationContext,
+          request.repository,
+          "REVIEW_WRITE",
+        );
+    }
 
     const sanitizationResult =
       sanitizeReviewRequest(request);

@@ -66,6 +66,15 @@ import {
 import {
   loadPersistenceConfig,
 } from "./persistence/persistence-config.js";
+import {
+  loadTenantAuthorizationConfig,
+} from "./authorization/tenant-authorization-config.js";
+import {
+  PostgresTenantAuthorization,
+} from "./authorization/postgres-tenant-authorization.js";
+import {
+  allowLegacyTenantResources,
+} from "./authorization/tenant-authorization.js";
 
 const defaultPort = 3000;
 const host = "0.0.0.0";
@@ -95,11 +104,6 @@ function readPort(
 const port =
   readPort(
     process.env.PORT,
-  );
-
-const authenticateReviewRequest =
-  createReviewApiKeyAuthenticator(
-    loadReviewApiKey(),
   );
 
 const intelligenceEngine =
@@ -132,9 +136,44 @@ const lifecycleStore =
 
 await lifecycleStore?.verifySchema();
 
+const tenantAuthorizationConfig =
+  loadTenantAuthorizationConfig();
+
+const tenantAuthorization = (() => {
+  if (
+    tenantAuthorizationConfig.provider
+    === "LEGACY"
+  ) {
+    return undefined;
+  }
+
+  if (postgresPool === undefined) {
+    throw new Error(
+      "CANARYGUARD_AUTHORIZATION_PROVIDER=POSTGRES requires CANARYGUARD_PERSISTENCE_PROVIDER=POSTGRES.",
+    );
+  }
+
+  return new PostgresTenantAuthorization(
+    postgresPool,
+  );
+})();
+
+const authenticateReviewRequest =
+  tenantAuthorization === undefined
+    ? createReviewApiKeyAuthenticator(
+        loadReviewApiKey(),
+      )
+    : tenantAuthorization.authenticateRequest
+        .bind(tenantAuthorization);
+
+const resourceAuthorizer =
+  tenantAuthorization
+  ?? allowLegacyTenantResources;
+
 const reviewController =
   new DefaultReviewController({
     intelligenceEngine,
+    resourceAuthorizer,
     ...(
       lifecycleStore === undefined
         ? {}
@@ -163,7 +202,8 @@ const githubReviewController =
         githubApiClient,
       externalEvidenceCollector:
         githubApiClient,
-        reviewController,
+      reviewController,
+      resourceAuthorizer,
       });
 
 const githubWebhookConfig =
@@ -280,15 +320,19 @@ const deploymentEventController =
     ? undefined
     : new DefaultDeploymentEventController(
         lifecycleStore,
+        resourceAuthorizer,
       );
 
 const managementReportController =
   postgresPool === undefined
     ? undefined
     : new DefaultManagementReportController(
-        new PostgresManagementReportStore(
-          postgresPool,
-        ),
+      new PostgresManagementReportStore(
+        postgresPool,
+      ),
+      {
+        resourceAuthorizer,
+      },
       );
 
 const requestHandler =

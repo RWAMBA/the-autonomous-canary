@@ -6,6 +6,12 @@ import type {
   IncomingMessage,
 } from "node:http";
 
+import type {
+  TenantAuthorizationContext,
+  TenantPermission,
+  TenantRequestAuthenticator,
+} from "../authorization/tenant-authorization.js";
+
 import {
   HttpError,
 } from "./http-error.js";
@@ -16,9 +22,8 @@ export const reviewApiKeyEnvironmentVariable =
 export const minimumReviewApiKeyBytes = 32;
 export const maximumReviewApiKeyBytes = 512;
 
-export type ReviewApiKeyAuthenticator = (
-  request: IncomingMessage,
-) => void;
+export type ReviewApiKeyAuthenticator =
+  TenantRequestAuthenticator;
 
 function validateConfiguredApiKey(
   value: string | undefined,
@@ -76,7 +81,7 @@ function createUnauthorizedError(): HttpError {
   });
 }
 
-function readBearerToken(
+export function readReviewBearerToken(
   request: IncomingMessage,
 ): string {
   const authorization =
@@ -116,7 +121,10 @@ export function loadReviewApiKey(
 
 export function createReviewApiKeyAuthenticator(
   configuredApiKey: string,
-): ReviewApiKeyAuthenticator {
+): (
+  request: IncomingMessage,
+  permission?: TenantPermission,
+) => Promise<TenantAuthorizationContext> {
   const validatedApiKey =
     validateConfiguredApiKey(
       configuredApiKey,
@@ -127,9 +135,9 @@ export function createReviewApiKeyAuthenticator(
 
   return (
     request: IncomingMessage,
-  ): void => {
+  ) => {
     const suppliedToken =
-      readBearerToken(request);
+      readReviewBearerToken(request);
 
     const suppliedDigest =
       createDigest(suppliedToken);
@@ -142,5 +150,10 @@ export function createReviewApiKeyAuthenticator(
     ) {
       throw createUnauthorizedError();
     }
+
+    return Promise.resolve({
+      provider: "LEGACY" as const,
+      role: "ADMIN" as const,
+    });
   };
 }

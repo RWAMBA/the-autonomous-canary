@@ -21,9 +21,14 @@ import type {
   DeploymentEventDto,
   DeploymentEventReceiptDto,
 } from "../dto/deployment-event.js";
+import type {
+  TenantAuthorizationContext,
+} from "../authorization/tenant-authorization.js";
 
 export interface ReviewPersistenceContext {
   readonly releaseId?: string;
+  readonly authorizationContext?:
+    TenantAuthorizationContext;
 }
 
 export interface ReviewLifecycleRecord {
