@@ -12,6 +12,7 @@ import type {
 import type {
   AxeEvidenceReportDto,
   ExternalEvidenceReportDto,
+  Phase7EvidenceReportDto,
   TrivyEvidenceReportDto,
 } from "../../src/dto/external-evidence.js";
 import {
@@ -88,6 +89,45 @@ function createAxeEvidence(
       },
     ],
     truncated: options.truncated ?? false,
+  };
+}
+
+function createPhase7Evidence(
+  source:
+    | "TRIVY_SECRET"
+    | "CANARYGUARD_EXPOSURE"
+    | "CANARYGUARD_AGENT_POLICY",
+  severity: "HIGH" | "CRITICAL" = "CRITICAL",
+  truncated = false,
+): Phase7EvidenceReportDto {
+  const details = {
+    TRIVY_SECRET: ["SECRET_SCAN", "SECRET_EXPOSURE"],
+    CANARYGUARD_EXPOSURE: ["DEPLOYED_EXPOSURE", "DEPLOYED_EXPOSURE"],
+    CANARYGUARD_AGENT_POLICY: ["AGENT_ACTION_POLICY", "AGENT_ACTION_POLICY_VIOLATION"],
+  } as const;
+  const [scanTarget, category] = details[source];
+
+  return {
+    schemaVersion: "canaryguard-phase7-evidence-v1",
+    source,
+    adapterVersion: "1.0.0",
+    scannerVersion: "1.0.0",
+    generatedAt: "2026-09-08T10:00:00.000Z",
+    repository: { owner: "RWAMBA", name: "the-autonomous-canary" },
+    workflow: {
+      runId: 34_212_932_962,
+      runAttempt: 1,
+      headSha: "1234567890abcdef",
+    },
+    scanTarget,
+    findings: [{
+      identifier: "RULE-001",
+      category,
+      severity,
+      title: "Bounded external finding",
+      resource: ".github/workflows/ci.yml",
+    }],
+    truncated,
   };
 }
 
@@ -411,6 +451,41 @@ test("raises risk when Axe evidence was truncated without blocking", () => {
     assessment.findings[1]?.blocking,
     false,
   );
+});
+
+test("blocks critical findings from every remaining Phase 7 source", () => {
+  for (const source of [
+    "TRIVY_SECRET",
+    "CANARYGUARD_EXPOSURE",
+    "CANARYGUARD_AGENT_POLICY",
+  ] as const) {
+    const assessment = new DefaultDeterministicEngine().analyze(
+      createRequest({ externalEvidence: [createPhase7Evidence(source)] }),
+    );
+    const finding = assessment.findings[0];
+
+    assert.equal(finding?.blocking, true);
+    assert.equal(finding?.attribution?.source, source);
+    assert.equal(finding?.file, ".github/workflows/ci.yml");
+    assert.deepEqual(assessment.blockingRuleCodes, [finding?.code]);
+  }
+});
+
+test("raises risk for truncated Phase 7 evidence without blocking", () => {
+  const assessment = new DefaultDeterministicEngine().analyze(
+    createRequest({
+      externalEvidence: [
+        createPhase7Evidence("CANARYGUARD_EXPOSURE", "HIGH", true),
+      ],
+    }),
+  );
+
+  assert.equal(
+    assessment.findings[1]?.code,
+    "CANARYGUARD_EXPOSURE_EVIDENCE_TRUNCATED",
+  );
+  assert.equal(assessment.findings[1]?.blocking, false);
+  assert.deepEqual(assessment.blockingRuleCodes, []);
 });
 
 test("rejects Trivy evidence correlated to another release", () => {

@@ -15,6 +15,7 @@ import {
   githubProviderEnvironmentVariable,
   loadGitHubConfig,
   maximumGitHubClientIdBytes,
+  phase7EvidenceProviderEnvironmentVariable,
 } from "../../src/github/github-app-config.js";
 
 const rsaPrivateKey =
@@ -92,10 +93,28 @@ test("loads a bounded GitHub App configuration", () => {
     config.axeEvidenceProvider,
     "DISABLED",
   );
+  assert.equal(config.phase7EvidenceProvider, "DISABLED");
   assert.equal(
     Object.isFrozen(config),
     true,
   );
+});
+
+test("enables the remaining Phase 7 evidence only as one provider", () => {
+  const config = loadGitHubConfig(createAppEnvironment({
+    [phase7EvidenceProviderEnvironmentVariable]: "ENABLED",
+  }));
+
+  if (config.provider !== "APP") {
+    assert.fail("Expected GitHub App configuration.");
+  }
+
+  assert.equal(config.phase7EvidenceProvider, "ENABLED");
+  assert.throws(() => loadGitHubConfig(createAppEnvironment({
+    [phase7EvidenceProviderEnvironmentVariable]: "PARTIAL",
+  })), {
+    message: "CANARYGUARD_PHASE7_EVIDENCE_PROVIDER must be DISABLED or ENABLED.",
+  });
 });
 
 test("enables Axe evidence only through its explicit provider", () => {

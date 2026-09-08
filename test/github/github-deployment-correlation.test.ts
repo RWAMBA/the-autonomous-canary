@@ -23,6 +23,7 @@ const installationToken =
 const config: GitHubAppConfig = {
   provider: "APP",
   axeEvidenceProvider: "AXE",
+  phase7EvidenceProvider: "DISABLED",
   clientId: "Iv23unit-test-client",
   privateKey: generateKeyPairSync(
     "rsa",

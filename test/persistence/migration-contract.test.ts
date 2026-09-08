@@ -47,6 +47,16 @@ const tenantAuthorizationMigrationUrl =
     import.meta.url,
   );
 
+const completeEvidenceMigrationUrl = new URL(
+  "../../db/migrations/007_complete_external_evidence_adapters.sql",
+  import.meta.url,
+);
+
+const completeEvidenceRollbackUrl = new URL(
+  "../../db/rollbacks/007_complete_external_evidence_adapters.sql",
+  import.meta.url,
+);
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -314,4 +324,53 @@ test("adds tenant-scoped credential authorization without storing raw secrets", 
     migration,
     /raw_(?:credential|secret|token)|private_key|key_value/iu,
   );
+});
+
+test("completes attributable Phase 7 evidence without raw evidence storage", async () => {
+  const migration = await readFile(completeEvidenceMigrationUrl, "utf8");
+
+  for (const pair of [
+    ["TRIVY_SECRET", "SECRET_EXPOSURE"],
+    ["CANARYGUARD_EXPOSURE", "DEPLOYED_EXPOSURE"],
+    ["CANARYGUARD_AGENT_POLICY", "AGENT_ACTION_POLICY_VIOLATION"],
+  ]) {
+    assert.match(migration, new RegExp(
+      `evidence_source = '${pair[0]}'[\\s\\S]+evidence_category = '${pair[1]}'`,
+      "u",
+    ));
+  }
+
+  assert.match(migration, /pg_advisory_xact_lock\(1548624771\)/u);
+  assert.match(migration, /007_complete_external_evidence_adapters/u);
+  assert.match(
+    migration,
+    /OR \(\s+evidence_source IS NOT NULL[\s\S]+evidence_category IS NOT NULL/u,
+  );
+  assert.doesNotMatch(
+    migration,
+    /raw_(?:payload|report|secret|response|workflow)|api_key|private_key/iu,
+  );
+});
+
+test("prepares a finding-preserving unified Phase 7 rollback", async () => {
+  const rollback = await readFile(completeEvidenceRollbackUrl, "utf8");
+
+  assert.match(
+    rollback,
+    /UPDATE deterministic_findings[\s\S]+WHERE evidence_source IN/u,
+  );
+  for (const source of [
+    "TRIVY_SECRET",
+    "CANARYGUARD_EXPOSURE",
+    "CANARYGUARD_AGENT_POLICY",
+  ]) {
+    assert.match(rollback, new RegExp(`'${source}'`, "u"));
+  }
+  assert.match(rollback, /evidence_source = 'AXE'/u);
+  assert.match(rollback, /evidence_source = 'TRIVY'/u);
+  assert.match(
+    rollback,
+    /OR \(\s+evidence_source IS NOT NULL[\s\S]+evidence_category IS NOT NULL/u,
+  );
+  assert.doesNotMatch(rollback, /DELETE FROM deterministic_findings/iu);
 });

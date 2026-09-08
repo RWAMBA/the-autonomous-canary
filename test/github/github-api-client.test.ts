@@ -29,6 +29,7 @@ const installationToken =
 const config: GitHubAppConfig = {
   provider: "APP",
   axeEvidenceProvider: "AXE",
+  phase7EvidenceProvider: "DISABLED",
   clientId: "Iv23unit-test-client",
   privateKey: generateKeyPairSync(
     "rsa",
@@ -1642,6 +1643,71 @@ test("collects one digest-bound Axe artifact for the exact workflow", async () =
   );
 });
 
+test("collects one digest-bound remaining Phase 7 artifact for the exact workflow", async () => {
+  const evidence = {
+    schemaVersion: "canaryguard-phase7-evidence-v1",
+    source: "TRIVY_SECRET",
+    adapterVersion: "1.0.0",
+    scannerVersion: "trivy-action-v0.36.0",
+    generatedAt: "2026-09-08T10:00:00.000Z",
+    repository: request.repository,
+    workflow: {
+      runId: request.runId,
+      runAttempt: 2,
+      headSha,
+    },
+    scanTarget: "SECRET_SCAN",
+    findings: [],
+    truncated: false,
+  } as const;
+  const archive = createStoredZip(
+    "canaryguard-phase7-evidence.json",
+    JSON.stringify(evidence),
+  );
+  const digest = createHash("sha256").update(archive).digest("hex");
+  const fakeFetch = createFetch((url) => {
+    if (url.endsWith("/installation")) {
+      return jsonResponse(installationResponse);
+    }
+    if (url.endsWith("/access_tokens")) {
+      return jsonResponse(tokenResponse);
+    }
+    if (url.includes("/artifacts?name=canaryguard-trivy-secret-v1")) {
+      return jsonResponse({
+        total_count: 1,
+        artifacts: [{
+          id: 703,
+          name: "canaryguard-trivy-secret-v1",
+          size_in_bytes: archive.length,
+          expired: false,
+          digest: `sha256:${digest}`,
+        }],
+      });
+    }
+    if (url.includes("/artifacts?name=")) {
+      return jsonResponse({ total_count: 0, artifacts: [] });
+    }
+    if (url.endsWith("/actions/artifacts/703/zip")) {
+      return new Response(new Uint8Array(archive), { status: 200 });
+    }
+    return jsonResponse({}, 404);
+  });
+
+  assert.deepEqual(
+    await new GitHubAppApiClient({
+      ...config,
+      phase7EvidenceProvider: "ENABLED",
+    }, {
+      fetchImplementation: fakeFetch.implementation,
+    }).collectExternalEvidence({
+      ...request,
+      expectedRunAttempt: 2,
+      expectedInstallationId: 901,
+    }),
+    [evidence],
+  );
+});
+
 test("returns no external evidence when named artifacts are absent", async () => {
   const fakeFetch = createFetch((url) => {
     if (url.endsWith("/installation")) {
@@ -1679,7 +1745,7 @@ test("returns no external evidence when named artifacts are absent", async () =>
   );
 });
 
-test("does not collect Axe evidence before staged activation", async () => {
+test("does not collect gated evidence before staged activation", async () => {
   const fakeFetch = createFetch((url) => {
     if (url.endsWith("/installation")) {
       return jsonResponse(
@@ -1704,6 +1770,7 @@ test("does not collect Axe evidence before staged activation", async () => {
     {
       ...config,
       axeEvidenceProvider: "DISABLED",
+      phase7EvidenceProvider: "DISABLED",
     },
     {
       fetchImplementation:
@@ -1722,6 +1789,14 @@ test("does not collect Axe evidence before staged activation", async () => {
       ({ url }) => url.includes(
         "canaryguard-axe-accessibility-v1",
       ),
+    ),
+    false,
+  );
+  assert.equal(
+    fakeFetch.requests.some(({ url }) =>
+      url.includes("canaryguard-trivy-secret-v1")
+      || url.includes("canaryguard-deployed-exposure-v1")
+      || url.includes("canaryguard-agent-action-policy-v1"),
     ),
     false,
   );

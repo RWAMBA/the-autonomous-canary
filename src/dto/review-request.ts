@@ -108,11 +108,13 @@ export const reviewEvidenceWithoutCiSchema = z
       .max(maximumExternalEvidenceReports)
       .default([])
       .superRefine((reports, context) => {
-        const targets = reports.map(
-          (report) => report.source === "TRIVY"
-            ? `${report.source}:${report.scanTarget}`
-            : `${report.source}:${report.pagePath}`,
-        );
+        const targets = reports.map((report) => {
+          if (report.source === "AXE") {
+            return `${report.source}:${report.pagePath}`;
+          }
+
+          return `${report.source}:${report.scanTarget}`;
+        });
 
         if (
           new Set(targets).size

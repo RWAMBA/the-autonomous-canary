@@ -283,6 +283,22 @@ test("accepts bounded normalized management responses", () => {
             createdAt:
               "2026-09-08T10:00:01.000Z",
           },
+          {
+            code: "TRIVY_SECRET_SECRET_EXPOSURE_CRITICAL",
+            severity: "CRITICAL",
+            title: "Generic API key",
+            explanation: "Trivy secret scanning reported an exposure.",
+            filePath: ".env.example",
+            blocking: true,
+            evidenceAttribution: {
+              source: "TRIVY_SECRET",
+              sourceVersion: "1.0.0",
+              identifier: "generic-api-key",
+              category: "SECRET_EXPOSURE",
+              generatedAt: "2026-09-08T10:00:00.000Z",
+            },
+            createdAt: "2026-09-08T10:00:01.000Z",
+          },
         ],
         truncated: false,
       },
