@@ -44,6 +44,10 @@ const caseStudyHtml = readAsset(
   "case-study.html",
   "text/html; charset=utf-8",
 );
+const faviconSvg = readAsset(
+  "favicon.svg",
+  "image/svg+xml; charset=utf-8",
+);
 
 export const customerAcquisitionHeaders = {
   "cache-control": "public, max-age=300",
@@ -79,6 +83,8 @@ export function getCustomerAcquisitionAsset(
       return architectureHtml;
     case "/case-study":
       return caseStudyHtml;
+    case "/favicon.svg":
+      return faviconSvg;
     case "/acquisition.css":
       return landingCss;
     case "/acquisition.js":

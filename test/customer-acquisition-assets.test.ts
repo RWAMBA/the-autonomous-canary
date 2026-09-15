@@ -5,6 +5,9 @@ import {
   getCustomerAcquisitionAsset,
   customerAcquisitionHeaders,
 } from "../src/customer-acquisition-assets.js";
+import {
+  getManagementDashboardAsset,
+} from "../src/management-dashboard-assets.js";
 
 test("serves a public acquisition page with roadmap services and safe boundaries", () => {
   const html = getCustomerAcquisitionAsset("/")?.body.toString("utf8") ?? "";
@@ -85,4 +88,22 @@ test("applies a locked-down browser policy to acquisition assets", () => {
     getCustomerAcquisitionAsset("/acquisition.js")?.contentType,
     "text/javascript; charset=utf-8",
   );
+});
+
+test("serves a safe SVG favicon referenced by every site surface", () => {
+  const favicon = getCustomerAcquisitionAsset("/favicon.svg");
+  const faviconMarkup = favicon?.body.toString("utf8") ?? "";
+
+  assert.equal(favicon?.contentType, "image/svg+xml; charset=utf-8");
+  assert.match(faviconMarkup, /^<svg /u);
+  assert.match(faviconMarkup, /<title id="title">CanaryGuard<\/title>/u);
+  assert.doesNotMatch(faviconMarkup, /<script|<foreignObject|(?:xlink:)?href=/iu);
+
+  for (const pathname of ["/", "/security", "/architecture", "/case-study"]) {
+    const html = getCustomerAcquisitionAsset(pathname)?.body.toString("utf8") ?? "";
+    assert.match(html, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/u);
+  }
+
+  const dashboard = getManagementDashboardAsset("/management")?.body.toString("utf8") ?? "";
+  assert.match(dashboard, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/u);
 });
