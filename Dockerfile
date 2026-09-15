@@ -19,6 +19,7 @@ COPY --chown=node:node .github/workflows/ci.yml ./.github/workflows/ci.yml
 COPY --chown=node:node Dockerfile ./Dockerfile
 COPY --chown=node:node tsconfig.json tsconfig.test.json ./
 COPY --chown=node:node db ./db
+COPY --chown=node:node docs ./docs
 COPY --chown=node:node public ./public
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node src ./src

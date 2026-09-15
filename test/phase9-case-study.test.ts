@@ -18,6 +18,12 @@ async function readCaseStudy(fileName: string): Promise<string> {
   return readFile(new URL(`../docs/case-study/${fileName}`, import.meta.url), "utf8");
 }
 
+test("copies the case-study documents into the container build stage", async () => {
+  const dockerfile = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
+
+  assert.match(dockerfile, /COPY --chown=node:node docs \.\/docs/u);
+});
+
 test("packages every required Phase 9 case-study document", async () => {
   const documents = await Promise.all(requiredDocuments.map(readCaseStudy));
   const corpus = documents.join("\n");
