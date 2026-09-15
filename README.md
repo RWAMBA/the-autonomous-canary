@@ -1427,3 +1427,9 @@ The current MVP intentionally has these limitations:
 - deployment actions are recommended but not automatically executed by the Review API
 
 The current scope is a public portfolio core and service-delivery foundation, not a multi-tenant self-service SaaS.
+
+## Licensing
+
+CanaryGuard is proprietary software. Copyright © 2026 Valerie Rwamba Munyi. All rights reserved.
+
+No open-source license is granted. The public repository may be viewed and forked only as permitted by GitHub's Terms of Service; reproduction, distribution, modification, or commercial use requires prior written permission from the copyright holder.
