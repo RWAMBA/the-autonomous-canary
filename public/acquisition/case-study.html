@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#08110f">
+    <meta name="description" content="CanaryGuard case study: deterministic release authority from verified pull-request evidence to observed deployment outcome.">
+    <title>Case study — CanaryGuard</title>
+    <link rel="stylesheet" href="/acquisition.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="CanaryGuard home"><span class="brand-mark" aria-hidden="true">CG</span><span><strong>CanaryGuard</strong><small>Release intelligence</small></span></a>
+      <nav aria-label="Primary navigation"><a href="/">Home</a><a href="/security">Security</a><a href="/architecture">Architecture</a><a class="nav-cta" href="/management">Live dashboard</a></nav>
+    </header>
+    <main id="main">
+      <section class="section problem-band">
+        <p class="eyebrow">Phase 9 · Portfolio case study</p>
+        <h1>CanaryGuard case study</h1>
+        <p class="lede">A release-governance system that correlates a verified pull request, bounded CI and security evidence, a structured GitHub Check Run, deterministic policy, deployment observations, and the final outcome under one release identity.</p>
+        <div class="case-metrics" aria-label="Case-study evidence summary">
+          <article><strong>509</strong><span>automated tests at the Phase 8 production baseline</span></article>
+          <article><strong>10/10</strong><span>definition-of-complete capabilities evidenced</span></article>
+          <article><strong>100%</strong><span>standard traffic selected for the validated low-risk release</span></article>
+          <article><strong>0 secrets</strong><span>required by public CI; intelligence uses MOCK</span></article>
+        </div>
+      </section>
+
+      <section class="section services" aria-labelledby="problem-title">
+        <div class="section-heading"><div><p class="eyebrow">Problem statement</p><h2 id="problem-title">Release evidence was fragmented; authority was ambiguous.</h2></div><p>CanaryGuard normalizes evidence without ingesting raw logs, keeps model analysis advisory, and makes deterministic policy the final authority.</p></div>
+        <div class="service-grid">
+          <article><span>01</span><h3>Verified intake</h3><p>Signed GitHub webhooks, replay protection, exact repository grants, and head-SHA correlation establish identity.</p></article>
+          <article><span>02</span><h3>Bounded evidence</h3><p>CI, vulnerability, secret, accessibility, exposure, and agent-policy facts are normalized with strict size limits.</p></article>
+          <article><span>03</span><h3>Deterministic policy authority</h3><p>Failed CI and critical findings block. Higher uncertainty selects a canary. Low risk permits a standard rollout.</p></article>
+          <article><span>04</span><h3>Observed delivery</h3><p>Canary observations, continuation, promotion, rollback, and directional accuracy remain attached to the release.</p></article>
+          <article><span>05</span><h3>Tenant boundary</h3><p>Digest-only credentials, roles, and repository grants prevent cross-tenant evidence access.</p></article>
+          <article><span>06</span><h3>Auditable output</h3><p>Structured Check Runs, a read-only management dashboard, and bounded JSON evidence reports expose the decision trail.</p></article>
+        </div>
+      </section>
+
+      <section class="section demo" aria-labelledby="evidence-title">
+        <div class="section-heading"><div><p class="eyebrow">Evidence, not claims</p><h2 id="evidence-title">Implementation and production proof are labeled separately.</h2></div></div>
+        <table class="evidence-table">
+          <thead><tr><th>Scenario</th><th>Policy result</th><th>Evidence status</th></tr></thead>
+          <tbody>
+            <tr><td>Safe pull request with complete passing evidence</td><td>CONTINUE · STANDARD · 100%</td><td class="status-verified">Production-validated</td></tr>
+            <tr><td>Failed CI workflow</td><td>BLOCK · BLOCKED · 0%</td><td class="status-verified">Production-validated</td></tr>
+            <tr><td>Healthy canary observation</td><td>CONTINUE observation</td><td class="status-simulated">Deterministically tested</td></tr>
+            <tr><td>Threshold breach</td><td>ROLLBACK</td><td class="status-simulated">Deterministically tested</td></tr>
+            <tr><td>Second-organization isolation</td><td>Cross-tenant access concealed with HTTP 403</td><td class="status-verified">Production-validated</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section request" aria-labelledby="demo-title">
+        <div class="request-copy"><p class="eyebrow">Live demonstration</p><h2 id="demo-title">Inspect the public proof surface.</h2><p>The dashboard shell is public, while release data requires an authorized tenant credential. The repository case-study package contains the threat model, demo script, policy table, examples, evaluation, recovery procedures, completion ledger, and Known limitations.</p></div>
+        <div class="privacy-card">
+          <strong>Safe demonstration boundary</strong>
+          <p>No key belongs in a URL, screenshot, recording, source file, or browser storage. Use a temporary terminal environment for authenticated API calls and unset it afterward.</p>
+          <div class="case-actions"><a class="button primary" href="/management">Open live dashboard</a><a class="button secondary" href="/#demo">Run decision demo</a><a class="button secondary" href="https://github.com/RWAMBA/the-autonomous-canary/tree/main/docs/case-study">Inspect full evidence package</a></div>
+        </div>
+      </section>
+    </main>
+    <footer><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">CG</span><strong>CanaryGuard</strong></a><p>Production-validated evidence is distinguished from simulation.</p><a href="/security">Security and privacy</a></footer>
+  </body>
+</html>

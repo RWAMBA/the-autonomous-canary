@@ -915,14 +915,17 @@ test("GET / serves the public acquisition page", async () => {
   );
 });
 
-test("GET serves the public security and architecture disclosures", async () => {
+test("GET serves the public security, architecture, and case-study disclosures", async () => {
   const securityResponse = await fetch(`${baseUrl}/security`);
   const architectureResponse = await fetch(`${baseUrl}/architecture`);
+  const caseStudyResponse = await fetch(`${baseUrl}/case-study`);
 
   assert.equal(securityResponse.status, 200);
   assert.match(await securityResponse.text(), /Security and privacy/u);
   assert.equal(architectureResponse.status, 200);
   assert.match(await architectureResponse.text(), /CanaryGuard architecture/u);
+  assert.equal(caseStudyResponse.status, 200);
+  assert.match(await caseStudyResponse.text(), /CanaryGuard case study/u);
 });
 
 test("POST /customer-leads accepts a bounded public request without authentication", async () => {

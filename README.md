@@ -1394,6 +1394,12 @@ src/
 Database migrations are stored under `db/migrations/`.
 Management dashboard assets are stored under `public/management/`.
 
+## Portfolio case study
+
+Phase 9 packages the project problem, architecture, threat model, deterministic authority, live demonstration, safe and unsafe release examples, CI failure evidence, canary continuation and rollback simulations, compliance report, evaluation results, test evidence, operations, recovery, known limitations, and the ten-item completion ledger under [`docs/case-study/`](docs/case-study/README.md). The same bounded summary is served publicly at `/case-study`.
+
+The case study distinguishes **Implemented**, **Production-validated**, and **Fully complete** evidence. Missing proof is reported as **Insufficient data to verify**.
+
 ## MVP limitations
 
 The current MVP intentionally has these limitations:
