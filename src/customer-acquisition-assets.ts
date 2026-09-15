@@ -40,6 +40,10 @@ const architectureHtml = readAsset(
   "architecture.html",
   "text/html; charset=utf-8",
 );
+const caseStudyHtml = readAsset(
+  "case-study.html",
+  "text/html; charset=utf-8",
+);
 
 export const customerAcquisitionHeaders = {
   "cache-control": "public, max-age=300",
@@ -73,6 +77,8 @@ export function getCustomerAcquisitionAsset(
       return securityHtml;
     case "/architecture":
       return architectureHtml;
+    case "/case-study":
+      return caseStudyHtml;
     case "/acquisition.css":
       return landingCss;
     case "/acquisition.js":

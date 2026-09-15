@@ -55,6 +55,26 @@ test("serves dedicated security and architecture disclosures", () => {
   assert.match(architecture, /PostgreSQL/u);
 });
 
+test("serves the public Phase 9 portfolio case study", () => {
+  const caseStudy = getCustomerAcquisitionAsset("/case-study")?.body.toString("utf8") ?? "";
+
+  assert.match(caseStudy, /CanaryGuard case study/u);
+  assert.match(caseStudy, /Deterministic policy authority/u);
+  assert.match(caseStudy, /Production-validated/u);
+  assert.match(caseStudy, /Known limitations/u);
+  assert.match(caseStudy, /Live demonstration/u);
+  assert.match(caseStudy, /^<!doctype html>/u);
+  assert.match(caseStudy, /<a class="skip-link" href="#main">/u);
+  assert.match(caseStudy, /<main id="main">/u);
+  assert.equal(caseStudy.match(/<h1>/gu)?.length, 1);
+  assert.doesNotMatch(caseStudy, /\sstyle=|<script|target="_blank"/u);
+
+  const identifiers = [...caseStudy.matchAll(/\sid="([^"]+)"/gu)].map(
+    ([, identifier]) => identifier,
+  );
+  assert.equal(new Set(identifiers).size, identifiers.length);
+});
+
 test("applies a locked-down browser policy to acquisition assets", () => {
   assert.match(
     customerAcquisitionHeaders["content-security-policy"],
