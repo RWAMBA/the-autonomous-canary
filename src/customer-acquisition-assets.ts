@@ -44,6 +44,10 @@ const caseStudyHtml = readAsset(
   "case-study.html",
   "text/html; charset=utf-8",
 );
+const licensingHtml = readAsset(
+  "licensing.html",
+  "text/html; charset=utf-8",
+);
 const faviconSvg = readAsset(
   "favicon.svg",
   "image/svg+xml; charset=utf-8",
@@ -83,6 +87,8 @@ export function getCustomerAcquisitionAsset(
       return architectureHtml;
     case "/case-study":
       return caseStudyHtml;
+    case "/licensing":
+      return licensingHtml;
     case "/favicon.svg":
       return faviconSvg;
     case "/acquisition.css":
