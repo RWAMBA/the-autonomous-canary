@@ -7,6 +7,10 @@
   const demoRisk = document.querySelector("#demo-risk");
   const demoDecision = document.querySelector("#demo-decision");
   const demoExplanation = document.querySelector("#demo-explanation");
+  const repositoryOwnerInput = form?.elements.namedItem("repositoryOwner");
+  const repositoryNameInput = form?.elements.namedItem("repositoryName");
+  const repositoryFormatMessage =
+    "Repository owner and name must use exact GitHub format: letters, numbers, periods, underscores, or hyphens—no spaces.";
 
   if (!(form instanceof HTMLFormElement)
     || !(status instanceof HTMLElement)
@@ -72,7 +76,18 @@
     event.preventDefault();
 
     if (!form.reportValidity()) {
-      setStatus("Complete the required fields before submitting.", true);
+      const repositoryFormatInvalid =
+        (repositoryOwnerInput instanceof HTMLInputElement
+          && repositoryOwnerInput.validity.patternMismatch)
+        || (repositoryNameInput instanceof HTMLInputElement
+          && repositoryNameInput.validity.patternMismatch);
+
+      setStatus(
+        repositoryFormatInvalid
+          ? repositoryFormatMessage
+          : "Complete the required fields before submitting.",
+        true,
+      );
       return;
     }
 
@@ -125,7 +140,9 @@
         throw new Error(
           response.status === 503
             ? "Customer intake is temporarily unavailable. Please try again later."
-            : body?.error?.message ?? "The request could not be submitted.",
+            : response.status === 400
+              ? `Review the submitted fields. ${repositoryFormatMessage}`
+              : body?.error?.message ?? "The request could not be submitted.",
         );
       }
 

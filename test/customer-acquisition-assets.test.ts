@@ -99,11 +99,41 @@ test("serves a safe SVG favicon referenced by every site surface", () => {
   assert.match(faviconMarkup, /<title id="title">CanaryGuard<\/title>/u);
   assert.doesNotMatch(faviconMarkup, /<script|<foreignObject|(?:xlink:)?href=/iu);
 
-  for (const pathname of ["/", "/security", "/architecture", "/case-study"]) {
+  for (const pathname of ["/", "/security", "/architecture", "/case-study", "/licensing"]) {
     const html = getCustomerAcquisitionAsset(pathname)?.body.toString("utf8") ?? "";
     assert.match(html, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/u);
   }
 
   const dashboard = getManagementDashboardAsset("/management")?.body.toString("utf8") ?? "";
   assert.match(dashboard, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/u);
+});
+
+test("publishes public licensing terms and actionable repository guidance", () => {
+  const licensing = getCustomerAcquisitionAsset("/licensing")?.body.toString("utf8") ?? "";
+
+  assert.match(licensing, /Licensing and permitted use/u);
+  assert.match(licensing, /CanaryGuard is proprietary software/u);
+  assert.match(licensing, /No open-source license is granted/u);
+  assert.match(licensing, /Copyright © 2026 Valerie Rwamba Munyi\. All rights reserved\./u);
+  assert.match(licensing, /Third-party dependencies and services retain their own licenses/u);
+  assert.doesNotMatch(licensing, /<script|target="_blank"/u);
+
+  for (const pathname of ["/", "/security", "/architecture", "/case-study"]) {
+    const html = getCustomerAcquisitionAsset(pathname)?.body.toString("utf8") ?? "";
+    assert.match(html, /href="\/licensing"/u);
+    assert.match(html, /© 2026 Valerie Rwamba Munyi\. All rights reserved\./u);
+  }
+
+  const dashboard = getManagementDashboardAsset("/management")?.body.toString("utf8") ?? "";
+  assert.match(dashboard, /href="\/licensing"/u);
+  assert.match(dashboard, /© 2026 Valerie Rwamba Munyi\. All rights reserved\./u);
+
+  const landing = getCustomerAcquisitionAsset("/")?.body.toString("utf8") ?? "";
+  assert.match(landing, /Spaces are not permitted/u);
+  assert.match(landing, /title="Use the exact GitHub repository name:/u);
+
+  const script = getCustomerAcquisitionAsset("/acquisition.js")?.body.toString("utf8") ?? "";
+  assert.match(script, /validity\.patternMismatch/u);
+  assert.match(script, /no spaces/u);
+  assert.match(script, /response\.status === 400/u);
 });

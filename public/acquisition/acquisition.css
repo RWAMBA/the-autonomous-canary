@@ -217,3 +217,13 @@ footer p { margin: 0; }
   .evidence-table tr { padding-block: .5rem; border-bottom: 1px solid var(--line); }
   .evidence-table td { border: 0; }
 }
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.footer-links a {
+  color: var(--muted);
+}

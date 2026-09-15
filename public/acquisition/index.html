@@ -25,6 +25,7 @@
         <a href="/security">Security</a>
         <a href="/architecture">Architecture</a>
         <a href="/case-study">Case study</a>
+        <a href="/licensing">Licensing</a>
         <a href="#request" class="nav-cta">Request assessment</a>
       </nav>
     </header>
@@ -156,9 +157,10 @@
           <fieldset>
             <legend>Repository identity <small>Optional</small></legend>
             <div class="field-pair">
-              <label><span>Owner</span><input name="repositoryOwner" maxlength="100" pattern="[A-Za-z0-9_.-]+" autocomplete="off"></label>
-              <label><span>Name</span><input name="repositoryName" maxlength="100" pattern="[A-Za-z0-9_.-]+" autocomplete="off"></label>
+              <label><span>Owner</span><input name="repositoryOwner" maxlength="100" pattern="[A-Za-z0-9_.-]+" title="Use the exact GitHub owner: letters, numbers, periods, underscores, or hyphens; no spaces." autocomplete="off"></label>
+              <label><span>Name</span><input name="repositoryName" maxlength="100" pattern="[A-Za-z0-9_.-]+" title="Use the exact GitHub repository name: letters, numbers, periods, underscores, or hyphens; no spaces." autocomplete="off"></label>
             </div>
+            <p class="field-note">Use the exact GitHub owner and repository name. Spaces are not permitted; leave both fields blank if no repository applies.</p>
           </fieldset>
           <label><span>Release challenge</span><textarea name="challenge" required minlength="20" maxlength="2000" rows="6" placeholder="What is preventing a confident release decision?"></textarea><small class="field-note">No source, secrets, credentials, or raw logs.</small></label>
           <label class="honeypot" aria-hidden="true"><span>Website</span><input name="website" tabindex="-1" autocomplete="off"></label>
@@ -169,6 +171,6 @@
       </section>
     </main>
 
-    <footer><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">CG</span><strong>CanaryGuard</strong></a><p>Release intelligence with deterministic authority.</p><a href="/case-study">Read the case study</a></footer>
+    <footer><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">CG</span><strong>CanaryGuard</strong></a><p>© 2026 Valerie Rwamba Munyi. All rights reserved.</p><div class="footer-links"><a href="/licensing">Licensing</a><a href="/case-study">Case study</a></div></footer>
   </body>
 </html>
