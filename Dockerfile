@@ -17,6 +17,8 @@ RUN npm ci
 COPY --chown=node:node .dockerignore ./.dockerignore
 COPY --chown=node:node .github/workflows/ci.yml ./.github/workflows/ci.yml
 COPY --chown=node:node Dockerfile ./Dockerfile
+COPY --chown=node:node COPYRIGHT ./COPYRIGHT
+COPY --chown=node:node README.md ./README.md
 COPY --chown=node:node tsconfig.json tsconfig.test.json ./
 COPY --chown=node:node db ./db
 COPY --chown=node:node docs ./docs
