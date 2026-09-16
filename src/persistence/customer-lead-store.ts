@@ -7,6 +7,9 @@ import type {
 import type {
   TenantAuthorizationContext,
 } from "../authorization/tenant-authorization.js";
+import type {
+  CustomerLeadNotificationEvent,
+} from "../customer-lead-notification.js";
 
 export interface NewCustomerLead {
   readonly leadId: string;
@@ -26,6 +29,29 @@ export interface CreatedCustomerLead {
   readonly leadId: string;
   readonly status: "NEW";
   readonly submittedAt: string;
+}
+
+export interface ClaimedCustomerLeadNotification {
+  readonly notificationId: string;
+  readonly event: CustomerLeadNotificationEvent;
+  readonly leadId: string;
+  readonly occurredAt: string;
+  readonly attempts: number;
+}
+
+export interface CustomerLeadNotificationOutbox {
+  claimNotification(
+    now: string,
+    leaseExpiresAt: string,
+  ): Promise<ClaimedCustomerLeadNotification | undefined>;
+  completeNotification(
+    notificationId: string,
+    deliveredAt: string,
+  ): Promise<void>;
+  retryNotification(
+    notificationId: string,
+    nextAttemptAt: string,
+  ): Promise<void>;
 }
 
 export interface CustomerLeadStore {

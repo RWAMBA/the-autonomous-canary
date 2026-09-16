@@ -1,8 +1,9 @@
-export interface CustomerLeadNotification {
-  readonly event: "RECEIVED" | "QUALIFIED";
-  readonly leadId: string;
-  readonly occurredAt: string;
-}
+import {
+  createCustomerLeadNotificationId,
+} from "./customer-lead-notification.js";
+import type {
+  CustomerLeadNotification,
+} from "./customer-lead-notification.js";
 
 export interface CustomerLeadNotifier {
   notify(notification: CustomerLeadNotification): Promise<void>;
@@ -44,7 +45,10 @@ implements CustomerLeadNotifier {
           authorization: `Bearer ${this.config.apiKey}`,
           "content-type": "application/json",
           "idempotency-key":
-            `customer-lead:${notification.event.toLowerCase()}:${notification.leadId}`,
+            createCustomerLeadNotificationId(
+              notification.event,
+              notification.leadId,
+            ),
         },
         body: JSON.stringify({
           recipient: this.config.recipient,
@@ -56,15 +60,15 @@ implements CustomerLeadNotifier {
       });
 
       if (!response.ok) {
-        throw new Error("Qualified-lead notification relay rejected the request.");
+        throw new Error("Customer-lead notification relay rejected the request.");
       }
     } catch (error) {
       if (error instanceof Error
-        && error.message === "Qualified-lead notification relay rejected the request.") {
+        && error.message === "Customer-lead notification relay rejected the request.") {
         throw error;
       }
 
-      throw new Error("Qualified-lead notification could not be delivered.");
+      throw new Error("Customer-lead notification could not be delivered.");
     } finally {
       clearTimeout(timeout);
     }

@@ -80,6 +80,14 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    version:
+      "009_customer_lead_notification_outbox",
+    url: new URL(
+      "../db/migrations/009_customer_lead_notification_outbox.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 const pool = createPostgresPool(config);

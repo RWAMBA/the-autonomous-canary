@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /customer-leads
+Disallow: /deployment-events
+Disallow: /github/
+Disallow: /reviews
+
+Sitemap: https://canaryguard.nextedgeanalytics.com/sitemap.xml

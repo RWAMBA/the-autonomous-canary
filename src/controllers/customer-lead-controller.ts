@@ -21,9 +21,6 @@ import type {
   CustomerLeadStore,
 } from "../persistence/customer-lead-store.js";
 import { HttpError } from "../middleware/http-error.js";
-import type {
-  CustomerLeadNotifier,
-} from "../qualified-lead-notifier.js";
 
 export interface CustomerLeadController {
   submitLead(input: unknown): Promise<CustomerLeadReceipt>;
@@ -42,7 +39,6 @@ export interface CustomerLeadControllerOptions {
   readonly createLeadId?: () => string;
   readonly now?: () => Date;
   readonly adminTenantId?: string;
-  readonly customerLeadNotifier?: CustomerLeadNotifier;
 }
 
 export class DefaultCustomerLeadController
@@ -50,7 +46,6 @@ implements CustomerLeadController {
   private readonly createLeadId: () => string;
   private readonly now: () => Date;
   private readonly adminTenantId: string | undefined;
-  private readonly customerLeadNotifier: CustomerLeadNotifier | undefined;
 
   constructor(
     private readonly store: CustomerLeadStore,
@@ -59,7 +54,6 @@ implements CustomerLeadController {
     this.createLeadId = options.createLeadId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
     this.adminTenantId = options.adminTenantId;
-    this.customerLeadNotifier = options.customerLeadNotifier;
   }
 
   async submitLead(input: unknown): Promise<CustomerLeadReceipt> {
@@ -94,12 +88,6 @@ implements CustomerLeadController {
       consentedAt: submittedAt,
       submissionToken: submission.submissionToken,
       submittedAt,
-    });
-
-    await this.customerLeadNotifier?.notify({
-      event: "RECEIVED",
-      leadId: created.leadId,
-      occurredAt: created.submittedAt,
     });
 
     return parseCustomerLeadReceipt({
@@ -138,14 +126,6 @@ implements CustomerLeadController {
         this.now().toISOString(),
       ),
     );
-
-    if (receipt.status === "QUALIFIED") {
-      await this.customerLeadNotifier?.notify({
-        event: "QUALIFIED",
-        leadId: receipt.leadId,
-        occurredAt: receipt.updatedAt,
-      });
-    }
 
     return receipt;
   }

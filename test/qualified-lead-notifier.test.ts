@@ -49,6 +49,11 @@ test("sends bounded idempotent received and qualified email requests", async () 
     text:
       "Customer request 123e4567-e89b-42d3-a456-426614174000 was qualified at 2026-09-08T20:05:00.000Z. Open the protected CanaryGuard management dashboard to continue.",
   });
+  const qualifiedHeaders = new Headers(requests[1]?.init?.headers);
+  assert.equal(
+    qualifiedHeaders.get("idempotency-key"),
+    "qualified-lead:123e4567-e89b-42d3-a456-426614174000",
+  );
 });
 
 test("does not expose relay response content on failure", async () => {

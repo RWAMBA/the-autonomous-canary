@@ -212,8 +212,16 @@ test("requires all lifecycle and reporting migrations at startup", async () => {
           version:
             "007_complete_external_evidence_adapters",
         },
+        {
+          version:
+            "008_direct_customer_acquisition",
+        },
+        {
+          version:
+            "009_customer_lead_notification_outbox",
+        },
       ],
-      rowCount: 7,
+      rowCount: 9,
     }),
   } as unknown as Pool;
 

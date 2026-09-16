@@ -141,3 +141,48 @@ test("publishes public licensing terms and actionable repository guidance", () =
   assert.match(script, /no spaces/u);
   assert.match(script, /response\.status === 400/u);
 });
+
+test("publishes canonical search-discovery assets for the custom domain", () => {
+  const origin = "https://canaryguard.nextedgeanalytics.com";
+  const publicRoutes = [
+    ["/", "/"],
+    ["/security", "/security"],
+    ["/architecture", "/architecture"],
+    ["/case-study", "/case-study"],
+    ["/licensing", "/licensing"],
+  ] as const;
+
+  for (const [pathname, canonicalPath] of publicRoutes) {
+    const html = getCustomerAcquisitionAsset(pathname)?.body.toString("utf8") ?? "";
+    const canonicalUrl = `${origin}${canonicalPath}`;
+
+    assert.match(
+      html,
+      new RegExp(`<link rel="canonical" href="${canonicalUrl}">`, "u"),
+    );
+    assert.match(
+      html,
+      new RegExp(`<meta property="og:url" content="${canonicalUrl}">`, "u"),
+    );
+    assert.match(html, /<meta property="og:site_name" content="CanaryGuard">/u);
+    assert.match(html, /<meta property="og:type" content="website">/u);
+  }
+
+  const robots = getCustomerAcquisitionAsset("/robots.txt");
+  assert.equal(robots?.contentType, "text/plain; charset=utf-8");
+  assert.match(robots?.body.toString("utf8") ?? "", /User-agent: \*/u);
+  assert.match(robots?.body.toString("utf8") ?? "", /Allow: \//u);
+  assert.match(
+    robots?.body.toString("utf8") ?? "",
+    /Sitemap: https:\/\/canaryguard\.nextedgeanalytics\.com\/sitemap\.xml/u,
+  );
+
+  const sitemap = getCustomerAcquisitionAsset("/sitemap.xml");
+  assert.equal(sitemap?.contentType, "application/xml; charset=utf-8");
+  const sitemapXml = sitemap?.body.toString("utf8") ?? "";
+  assert.match(sitemapXml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/u);
+  for (const [, canonicalPath] of publicRoutes) {
+    assert.match(sitemapXml, new RegExp(`<loc>${origin}${canonicalPath}</loc>`, "u"));
+  }
+  assert.doesNotMatch(sitemapXml, /\/management|\/health|\/version|\/customer-leads/u);
+});

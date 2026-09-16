@@ -67,6 +67,16 @@ const customerAcquisitionRollbackUrl = new URL(
   import.meta.url,
 );
 
+const customerLeadNotificationMigrationUrl = new URL(
+  "../../db/migrations/009_customer_lead_notification_outbox.sql",
+  import.meta.url,
+);
+
+const customerLeadNotificationRollbackUrl = new URL(
+  "../../db/rollbacks/009_customer_lead_notification_outbox.sql",
+  import.meta.url,
+);
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,
@@ -410,4 +420,29 @@ test("provides an explicit destructive rollback for acquisition PII", async () =
   assert.match(rollback, /DELETE FROM schema_migrations/u);
   assert.match(rollback, /008_direct_customer_acquisition/u);
   assert.doesNotMatch(rollback, /CUSTOMER_LEAD_MANAGE[\s\S]+CUSTOMER_LEAD_MANAGE/u);
+});
+
+test("adds a durable bounded customer-lead notification outbox", async () => {
+  const migration = await readFile(customerLeadNotificationMigrationUrl, "utf8");
+
+  assert.match(migration, /CREATE TABLE customer_lead_notifications/u);
+  assert.match(migration, /notification_id text PRIMARY KEY/u);
+  assert.match(migration, /event text NOT NULL/u);
+  assert.match(migration, /next_attempt_at timestamptz NOT NULL/u);
+  assert.match(migration, /lease_expires_at timestamptz/u);
+  assert.match(migration, /delivered_at timestamptz/u);
+  assert.match(migration, /009_customer_lead_notification_outbox/u);
+  assert.doesNotMatch(
+    migration,
+    /contact_name|work_email|organization_name|challenge|api_key|raw_response/iu,
+  );
+});
+
+test("provides a finding-preserving notification-outbox rollback", async () => {
+  const rollback = await readFile(customerLeadNotificationRollbackUrl, "utf8");
+
+  assert.match(rollback, /DROP TABLE customer_lead_notifications/u);
+  assert.match(rollback, /DELETE FROM schema_migrations/u);
+  assert.match(rollback, /009_customer_lead_notification_outbox/u);
+  assert.doesNotMatch(rollback, /DROP TABLE customer_leads/u);
 });

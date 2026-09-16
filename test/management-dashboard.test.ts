@@ -64,6 +64,7 @@ test("GET /management serves a hardened dashboard shell", async () => {
   assert.match(body, /type="password"/u);
   assert.match(body, /href="\/management\/dashboard\.css"/u);
   assert.match(body, /src="\/management\/dashboard\.js"/u);
+  assert.match(body, /<meta name="robots" content="noindex,nofollow">/u);
   assert.doesNotMatch(body, /<script(?![^>]*\bsrc=)/u);
   assert.doesNotMatch(body, /<style\b/u);
   assert.doesNotMatch(body, /https?:\/\//u);

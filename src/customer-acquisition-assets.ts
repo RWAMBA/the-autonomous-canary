@@ -52,6 +52,14 @@ const faviconSvg = readAsset(
   "favicon.svg",
   "image/svg+xml; charset=utf-8",
 );
+const robotsText = readAsset(
+  "robots.txt",
+  "text/plain; charset=utf-8",
+);
+const sitemapXml = readAsset(
+  "sitemap.xml",
+  "application/xml; charset=utf-8",
+);
 
 export const customerAcquisitionHeaders = {
   "cache-control": "public, max-age=300",
@@ -91,6 +99,10 @@ export function getCustomerAcquisitionAsset(
       return licensingHtml;
     case "/favicon.svg":
       return faviconSvg;
+    case "/robots.txt":
+      return robotsText;
+    case "/sitemap.xml":
+      return sitemapXml;
     case "/acquisition.css":
       return landingCss;
     case "/acquisition.js":
