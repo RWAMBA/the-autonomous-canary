@@ -38,6 +38,7 @@ function input(website = "") {
 
 test("persists a validated lead and returns only its receipt", async () => {
   let created: unknown;
+  let notification: unknown;
   const store = {
     createLead: (lead) => {
       created = lead;
@@ -54,6 +55,12 @@ test("persists a validated lead and returns only its receipt", async () => {
     createLeadId: () => leadId,
     now: () => new Date(submittedAt),
     adminTenantId: context.tenantId,
+    customerLeadNotifier: {
+      notify: (value) => {
+        notification = value;
+        return Promise.resolve();
+      },
+    },
   });
 
   assert.deepEqual(await controller.submitLead(input()), {
@@ -73,6 +80,11 @@ test("persists a validated lead and returns only its receipt", async () => {
     submissionToken:
       "423e4567-e89b-42d3-a456-426614174000",
     submittedAt,
+  });
+  assert.deepEqual(notification, {
+    event: "RECEIVED",
+    leadId,
+    occurredAt: submittedAt,
   });
 });
 
@@ -143,7 +155,7 @@ test("records an ADMIN qualification transition without free-form notes", async 
     createLeadId: () => leadId,
     now: () => new Date(submittedAt),
     adminTenantId: context.tenantId,
-    qualifiedLeadNotifier: {
+    customerLeadNotifier: {
       notify: (value) => {
         notification = value;
         return Promise.resolve();
@@ -165,6 +177,7 @@ test("records an ADMIN qualification transition without free-form notes", async 
     occurredAt: submittedAt,
   });
   assert.deepEqual(notification, {
+    event: "QUALIFIED",
     leadId,
     occurredAt: submittedAt,
   });

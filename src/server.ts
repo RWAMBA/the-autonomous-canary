@@ -70,7 +70,7 @@ import {
   PostgresCustomerLeadStore,
 } from "./persistence/postgres-customer-lead-store.js";
 import {
-  HttpQualifiedLeadNotifier,
+  HttpCustomerLeadNotifier,
 } from "./qualified-lead-notifier.js";
 import {
   loadPersistenceConfig,
@@ -372,8 +372,8 @@ const customerLeadController = (() => {
     {
       adminTenantId:
         customerAcquisitionConfig.adminTenantId,
-      qualifiedLeadNotifier:
-        new HttpQualifiedLeadNotifier(
+      customerLeadNotifier:
+        new HttpCustomerLeadNotifier(
           customerAcquisitionConfig.qualifiedLeadNotification,
         ),
     },

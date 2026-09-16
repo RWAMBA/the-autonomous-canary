@@ -9,6 +9,7 @@
   const demoExplanation = document.querySelector("#demo-explanation");
   const repositoryOwnerInput = form?.elements.namedItem("repositoryOwner");
   const repositoryNameInput = form?.elements.namedItem("repositoryName");
+  let pendingSubmission;
   const repositoryFormatMessage =
     "Repository owner and name must use exact GitHub format: letters, numbers, periods, underscores, or hyphens—no spaces.";
 
@@ -45,6 +46,12 @@
       decision: "BLOCK",
       explanation:
         "A critical normalized secret finding triggers a blocking rule without exposing the secret value.",
+    },
+    "threshold-breach": {
+      risk: "HIGH RISK · CANARY UNHEALTHY",
+      decision: "ROLLBACK",
+      explanation:
+        "The canary exceeded its agreed health threshold, so policy requires rollback and records the deployment outcome.",
     },
   };
 
@@ -101,7 +108,7 @@
       return;
     }
 
-    const submission = {
+    const submissionPayload = {
       contactName: String(data.get("contactName") ?? ""),
       workEmail: String(data.get("workEmail") ?? ""),
       organizationName: String(data.get("organizationName") ?? ""),
@@ -109,8 +116,20 @@
       ...(repositoryOwner === undefined ? {} : { repositoryOwner, repositoryName }),
       challenge: String(data.get("challenge") ?? ""),
       consent: data.get("consent") === "on",
-      submissionToken: crypto.randomUUID(),
       website: String(data.get("website") ?? ""),
+    };
+    const serializedPayload = JSON.stringify(submissionPayload);
+
+    if (pendingSubmission?.serializedPayload !== serializedPayload) {
+      pendingSubmission = {
+        serializedPayload,
+        submissionToken: crypto.randomUUID(),
+      };
+    }
+
+    const submission = {
+      ...submissionPayload,
+      submissionToken: pendingSubmission.submissionToken,
     };
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15_000);
@@ -147,6 +166,7 @@
       }
 
       form.reset();
+      pendingSubmission = undefined;
       setStatus(`Request received. Reference ${body.leadId}.`);
     } catch (error) {
       setStatus(

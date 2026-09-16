@@ -22,7 +22,7 @@ import type {
 } from "../persistence/customer-lead-store.js";
 import { HttpError } from "../middleware/http-error.js";
 import type {
-  QualifiedLeadNotifier,
+  CustomerLeadNotifier,
 } from "../qualified-lead-notifier.js";
 
 export interface CustomerLeadController {
@@ -42,7 +42,7 @@ export interface CustomerLeadControllerOptions {
   readonly createLeadId?: () => string;
   readonly now?: () => Date;
   readonly adminTenantId?: string;
-  readonly qualifiedLeadNotifier?: QualifiedLeadNotifier;
+  readonly customerLeadNotifier?: CustomerLeadNotifier;
 }
 
 export class DefaultCustomerLeadController
@@ -50,7 +50,7 @@ implements CustomerLeadController {
   private readonly createLeadId: () => string;
   private readonly now: () => Date;
   private readonly adminTenantId: string | undefined;
-  private readonly qualifiedLeadNotifier: QualifiedLeadNotifier | undefined;
+  private readonly customerLeadNotifier: CustomerLeadNotifier | undefined;
 
   constructor(
     private readonly store: CustomerLeadStore,
@@ -59,7 +59,7 @@ implements CustomerLeadController {
     this.createLeadId = options.createLeadId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
     this.adminTenantId = options.adminTenantId;
-    this.qualifiedLeadNotifier = options.qualifiedLeadNotifier;
+    this.customerLeadNotifier = options.customerLeadNotifier;
   }
 
   async submitLead(input: unknown): Promise<CustomerLeadReceipt> {
@@ -94,6 +94,12 @@ implements CustomerLeadController {
       consentedAt: submittedAt,
       submissionToken: submission.submissionToken,
       submittedAt,
+    });
+
+    await this.customerLeadNotifier?.notify({
+      event: "RECEIVED",
+      leadId: created.leadId,
+      occurredAt: created.submittedAt,
     });
 
     return parseCustomerLeadReceipt({
@@ -134,7 +140,8 @@ implements CustomerLeadController {
     );
 
     if (receipt.status === "QUALIFIED") {
-      await this.qualifiedLeadNotifier?.notify({
+      await this.customerLeadNotifier?.notify({
+        event: "QUALIFIED",
         leadId: receipt.leadId,
         occurredAt: receipt.updatedAt,
       });

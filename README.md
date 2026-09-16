@@ -1267,7 +1267,7 @@ curl --fail --silent --show-error \
 
 Qualification is an explicit state machine: `NEW` may become `QUALIFIED` or `CLOSED`; `QUALIFIED` may become `PROPOSAL_SENT` or `CLOSED`; `PROPOSAL_SENT` may become `ENGAGED` or `CLOSED`; and `ENGAGED` may become `CLOSED`. Closed records cannot be reopened through the API. Transitions record bounded actor identifiers but no free-form operator notes. `AUTOMATION` and `VIEWER` credentials cannot read or mutate customer leads.
 
-Moving a request to `QUALIFIED` sends a bounded email request to the protected relay configured by `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_URL`. The relay receives only the configured recipient, a fixed subject, the lead UUID, qualification time, and an idempotency key; it does not receive contact details or the challenge text. `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_API_KEY` stays in the runtime environment. The relay must honor the idempotency key so an operator can safely repeat the qualification request after an inconclusive delivery response.
+Creating a request and moving a request to `QUALIFIED` each send a bounded email request to the protected relay configured by `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_URL`. The relay receives only the configured recipient, a fixed event-specific subject, the lead UUID, event time, and an idempotency key; it does not receive contact details or the challenge text. `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_API_KEY` stays in the runtime environment. The relay must honor the idempotency key so a form retry or qualification retry remains safe after an inconclusive delivery response. The browser reuses a submission token when the same payload is retried and rotates it if the payload changes.
 
 Example qualification request:
 

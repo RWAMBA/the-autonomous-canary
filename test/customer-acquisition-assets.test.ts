@@ -28,6 +28,7 @@ test("serves a public acquisition page with roadmap services and safe boundaries
   assert.match(html, /name="workEmail"/u);
   assert.match(html, /Interactive decision demo/u);
   assert.match(html, /data-demo-scenario="critical-secret"/u);
+  assert.match(html, /data-demo-scenario="threshold-breach"/u);
   assert.match(html, /name="consent"/u);
   assert.doesNotMatch(
     html,
@@ -41,6 +42,9 @@ test("implements the product demo with fixed DOM-safe scenarios", () => {
   const script = getCustomerAcquisitionAsset("/acquisition.js")?.body.toString("utf8") ?? "";
 
   assert.match(script, /critical-secret/u);
+  assert.match(script, /threshold-breach/u);
+  assert.match(script, /decision: "ROLLBACK"/u);
+  assert.match(script, /pendingSubmission/u);
   assert.match(script, /deterministic policy blocks deployment/iu);
   assert.match(script, /textContent/u);
   assert.doesNotMatch(script, /innerHTML|eval\(|new Function/u);

@@ -2,44 +2,57 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  HttpQualifiedLeadNotifier,
+  HttpCustomerLeadNotifier,
 } from "../src/qualified-lead-notifier.js";
 
-test("sends a bounded idempotent qualified-lead email request", async () => {
-  let request: { input: string; init?: RequestInit } | undefined;
-  const notifier = new HttpQualifiedLeadNotifier({
+test("sends bounded idempotent received and qualified email requests", async () => {
+  const requests: Array<{ input: string; init?: RequestInit }> = [];
+  const notifier = new HttpCustomerLeadNotifier({
     url: new URL("https://notifications.example.test/qualified-leads"),
     apiKey: "notification-key-that-is-not-exposed",
     recipient: "operator@example.test",
   }, {
     fetchImplementation: (input, init) => {
-      request = { input: String(input), ...(init === undefined ? {} : { init }) };
+      requests.push({ input: String(input), ...(init === undefined ? {} : { init }) });
       return Promise.resolve(new Response(null, { status: 202 }));
     },
   });
 
   await notifier.notify({
+    event: "RECEIVED",
     leadId: "123e4567-e89b-42d3-a456-426614174000",
     occurredAt: "2026-09-08T20:00:00.000Z",
   });
+  await notifier.notify({
+    event: "QUALIFIED",
+    leadId: "123e4567-e89b-42d3-a456-426614174000",
+    occurredAt: "2026-09-08T20:05:00.000Z",
+  });
 
-  assert.equal(request?.input, "https://notifications.example.test/qualified-leads");
-  const headers = new Headers(request?.init?.headers);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0]?.input, "https://notifications.example.test/qualified-leads");
+  const receivedHeaders = new Headers(requests[0]?.init?.headers);
   assert.equal(
-    headers.get("idempotency-key"),
-    "qualified-lead:123e4567-e89b-42d3-a456-426614174000",
+    receivedHeaders.get("idempotency-key"),
+    "customer-lead:received:123e4567-e89b-42d3-a456-426614174000",
   );
-  assert.equal(headers.get("authorization"), "Bearer notification-key-that-is-not-exposed");
-  assert.deepEqual(JSON.parse(String(request?.init?.body)), {
+  assert.equal(receivedHeaders.get("authorization"), "Bearer notification-key-that-is-not-exposed");
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    recipient: "operator@example.test",
+    subject: "New CanaryGuard customer request",
+    text:
+      "Customer request 123e4567-e89b-42d3-a456-426614174000 was received at 2026-09-08T20:00:00.000Z. Open the protected CanaryGuard management dashboard to review it.",
+  });
+  assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
     recipient: "operator@example.test",
     subject: "CanaryGuard customer request qualified",
     text:
-      "Customer request 123e4567-e89b-42d3-a456-426614174000 was qualified at 2026-09-08T20:00:00.000Z. Open the protected CanaryGuard management dashboard to continue.",
+      "Customer request 123e4567-e89b-42d3-a456-426614174000 was qualified at 2026-09-08T20:05:00.000Z. Open the protected CanaryGuard management dashboard to continue.",
   });
 });
 
 test("does not expose relay response content on failure", async () => {
-  const notifier = new HttpQualifiedLeadNotifier({
+  const notifier = new HttpCustomerLeadNotifier({
     url: new URL("https://notifications.example.test/qualified-leads"),
     apiKey: "notification-key-that-is-not-exposed",
     recipient: "operator@example.test",
@@ -51,6 +64,7 @@ test("does not expose relay response content on failure", async () => {
 
   await assert.rejects(
     notifier.notify({
+      event: "RECEIVED",
       leadId: "123e4567-e89b-42d3-a456-426614174000",
       occurredAt: "2026-09-08T20:00:00.000Z",
     }),
