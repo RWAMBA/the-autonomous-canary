@@ -1262,12 +1262,12 @@ After authentication with an `ADMIN` credential belonging to the single tenant c
 ```bash
 curl --fail --silent --show-error \
   --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
-  'https://the-autonomous-canary.onrender.com/management/customer-leads?status=NEW&limit=25'
+  'https://canaryguard.nextedgeanalytics.com/management/customer-leads?status=NEW&limit=25'
 ```
 
 Qualification is an explicit state machine: `NEW` may become `QUALIFIED` or `CLOSED`; `QUALIFIED` may become `PROPOSAL_SENT` or `CLOSED`; `PROPOSAL_SENT` may become `ENGAGED` or `CLOSED`; and `ENGAGED` may become `CLOSED`. Closed records cannot be reopened through the API. Transitions record bounded actor identifiers but no free-form operator notes. `AUTOMATION` and `VIEWER` credentials cannot read or mutate customer leads.
 
-Moving a request to `QUALIFIED` sends a bounded email request to the protected relay configured by `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_URL`. The relay receives only the configured recipient, a fixed subject, the lead UUID, qualification time, and an idempotency key; it does not receive contact details or the challenge text. `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_API_KEY` stays in the runtime environment. The relay must honor the idempotency key so an operator can safely repeat the qualification request after an inconclusive delivery response.
+Creating a request and moving a request to `QUALIFIED` each enqueue a bounded notification in the same PostgreSQL transaction as the lead change. The public request succeeds after that transaction commits; relay availability is no longer part of the intake response. A leased worker sends due notifications, retries failures with bounded exponential backoff, and relies on stable event-specific idempotency keys so recovery after a timeout or process restart cannot intentionally duplicate an email. The relay receives only the configured recipient, fixed event-specific subject, lead UUID, event time, and idempotency key; it does not receive contact details or challenge text. `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_API_KEY` stays in the runtime environment. The browser also reuses a submission token when the same payload is retried and rotates it if the payload changes.
 
 Example qualification request:
 
@@ -1277,29 +1277,35 @@ curl --fail --silent --show-error \
   --header "Authorization: Bearer ${CANARYGUARD_API_KEY}" \
   --header 'Content-Type: application/json' \
   --data '{"status":"QUALIFIED"}' \
-  'https://the-autonomous-canary.onrender.com/management/customer-leads/<lead-id>'
+  'https://canaryguard.nextedgeanalytics.com/management/customer-leads/<lead-id>'
 ```
 
 The remaining commercial flow is deliberately manual: qualify the request, agree a written scope and quotation, accept payment through an authorized external method, and provision tenant/repository access with the existing operator command. A lead submission does not create an account, contract, invoice, subscription, payment obligation, tenant, credential, or repository grant.
 
 ### Phase 8 production activation
 
-Migration `008_direct_customer_acquisition` must be applied before enabling lead persistence. Use a staged deployment:
+Migrations `008_direct_customer_acquisition` and `009_customer_lead_notification_outbox` must be applied before enabling lead persistence. Use a staged deployment:
 
-1. Keep `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED` and apply migration 008 from a protected administrative environment.
+1. Keep `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED` and apply migrations 008 and 009 from a protected administrative environment.
 2. Deploy the new revision and verify `/`, `/health`, `/version`, and the existing review/reporting workflows. Public submissions correctly return an unavailable response while disabled.
 3. Confirm `CANARYGUARD_AUTHORIZATION_PROVIDER=POSTGRES`, set `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=POSTGRES`, set `CANARYGUARD_CUSTOMER_ACQUISITION_ADMIN_TENANT_ID` to the platform operator tenant UUID, configure the qualified-lead notification URL, API key, and recipient, and redeploy the same revision. Startup fails closed if PostgreSQL tenant authorization or persistence is unavailable.
-4. Submit a non-sensitive test lead, verify it appears for the configured tenant's `ADMIN` credential, qualify it through the allowed state sequence, verify the idempotent email notification, and verify another tenant's `ADMIN`, `AUTOMATION`, `VIEWER`, and unauthenticated management requests are rejected.
+4. Submit a non-sensitive test lead, verify it appears for the configured tenant's `ADMIN` credential, verify the `RECEIVED` notification is delivered from the outbox, qualify it through the allowed state sequence, verify the `QUALIFIED` notification, and verify another tenant's `ADMIN`, `AUTOMATION`, `VIEWER`, and unauthenticated management requests are rejected.
 5. Confirm the landing page and form with keyboard navigation, mobile layout, and the automated accessibility check before publishing the acquisition URL.
 
-Do not accept customer requests during the migration/deployment interval. Migration 008 is additive to release data, but its rollback is intentionally destructive to acquisition data. Roll back in this exact order:
+Do not accept customer requests during the migration/deployment interval. Migrations 008 and 009 are additive to release data, but rolling back migration 008 is intentionally destructive to acquisition data. Roll back in this exact order:
 
 1. Stop public intake and export any leads that must be retained through an approved private channel.
 2. Set `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED`, deploy, and drain every migration-008-capable process.
-3. Run `db/rollbacks/008_direct_customer_acquisition.sql` from the protected administrative environment.
+3. Run `db/rollbacks/009_customer_lead_notification_outbox.sql`, then `db/rollbacks/008_direct_customer_acquisition.sql`, from the protected administrative environment.
 4. Redeploy revision `0a3277ca095cf9628ffd68993e6840f965d3d7ee`.
 
 The rollback drops customer lead and status-event tables and restores the previous authorization-permission constraint; it does not modify release records.
+
+### Public discovery
+
+The canonical public origin is `https://canaryguard.nextedgeanalytics.com`. Public pages declare that origin through canonical and Open Graph metadata. `/robots.txt` permits public crawling and advertises `/sitemap.xml`; the sitemap includes the home, security, architecture, case-study, and licensing pages while excluding management and API routes. The management shell declares `noindex,nofollow`.
+
+These controls make the site eligible for discovery but do not guarantee crawling, indexing, ranking, or a particular search-result position. After deployment, submit the sitemap and request indexing for the canonical home page through the verified search-engine webmaster account. Add a descriptive link to CanaryGuard from the main NextEdge Analytics website so crawlers and visitors can discover the product from the parent domain.
 
 Do not store production secrets in GitHub source files, workflow definitions, Docker configuration, build arguments, or container layers.
 
@@ -1387,6 +1393,7 @@ src/
 │   └── release-lifecycle-store.ts
 ├── migrate-database.ts
 ├── management-dashboard-assets.ts
+├── customer-lead-notification-worker.ts
 ├── app.ts
 └── server.ts
 ```

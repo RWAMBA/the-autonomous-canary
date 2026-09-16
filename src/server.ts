@@ -70,8 +70,11 @@ import {
   PostgresCustomerLeadStore,
 } from "./persistence/postgres-customer-lead-store.js";
 import {
-  HttpQualifiedLeadNotifier,
+  HttpCustomerLeadNotifier,
 } from "./qualified-lead-notifier.js";
+import {
+  CustomerLeadNotificationWorker,
+} from "./customer-lead-notification-worker.js";
 import {
   loadPersistenceConfig,
 } from "./persistence/persistence-config.js";
@@ -350,6 +353,10 @@ const managementReportController =
 const customerAcquisitionConfig =
   loadCustomerAcquisitionConfig();
 
+let customerLeadNotificationWorker:
+  CustomerLeadNotificationWorker
+  | undefined;
+
 const customerLeadController = (() => {
   if (customerAcquisitionConfig.provider === "DISABLED") {
     return undefined;
@@ -367,15 +374,22 @@ const customerLeadController = (() => {
     );
   }
 
+  const customerLeadStore =
+    new PostgresCustomerLeadStore(postgresPool);
+
+  customerLeadNotificationWorker =
+    new CustomerLeadNotificationWorker(
+      customerLeadStore,
+      new HttpCustomerLeadNotifier(
+        customerAcquisitionConfig.qualifiedLeadNotification,
+      ),
+    );
+
   return new DefaultCustomerLeadController(
-    new PostgresCustomerLeadStore(postgresPool),
+    customerLeadStore,
     {
       adminTenantId:
         customerAcquisitionConfig.adminTenantId,
-      qualifiedLeadNotifier:
-        new HttpQualifiedLeadNotifier(
-          customerAcquisitionConfig.qualifiedLeadNotification,
-        ),
     },
   );
 })();
@@ -442,6 +456,8 @@ if (
   durableWorkflowRunWorker?.start();
 }
 
+customerLeadNotificationWorker?.start();
+
 server.listen(
   port,
   host,
@@ -487,6 +503,7 @@ async function shutdown(
   });
 
   await durableWorkflowRunWorker?.stop();
+  await customerLeadNotificationWorker?.stop();
   await lifecycleStore?.close();
 
   console.log(

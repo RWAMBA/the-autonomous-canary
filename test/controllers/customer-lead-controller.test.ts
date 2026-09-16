@@ -126,7 +126,6 @@ test("silently discards honeypot submissions", async () => {
 
 test("records an ADMIN qualification transition without free-form notes", async () => {
   let actor: unknown;
-  let notification: unknown;
   const store = {
     createLead: () => Promise.reject(new Error("not used")),
     listLeads: () => Promise.resolve({ leads: [] }),
@@ -143,12 +142,6 @@ test("records an ADMIN qualification transition without free-form notes", async 
     createLeadId: () => leadId,
     now: () => new Date(submittedAt),
     adminTenantId: context.tenantId,
-    qualifiedLeadNotifier: {
-      notify: (value) => {
-        notification = value;
-        return Promise.resolve();
-      },
-    },
   });
 
   assert.deepEqual(
@@ -162,10 +155,6 @@ test("records an ADMIN qualification transition without free-form notes", async 
   assert.deepEqual(actor, {
     status: "QUALIFIED",
     authorizationContext: context,
-    occurredAt: submittedAt,
-  });
-  assert.deepEqual(notification, {
-    leadId,
     occurredAt: submittedAt,
   });
 });

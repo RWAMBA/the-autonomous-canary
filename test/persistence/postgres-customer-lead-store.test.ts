@@ -33,9 +33,10 @@ function newLead() {
 
 test("stores a lead with token and payload digests instead of the raw token", async () => {
   let valuesSeen: readonly unknown[] = [];
-  const pool = {
-    query: (text: string, values: readonly unknown[]) => {
-      assert.match(text, /INSERT INTO customer_leads/u);
+  const statements: string[] = [];
+  const query = (text: string, values: readonly unknown[] = []) => {
+    statements.push(text.replace(/\s+/gu, " ").trim());
+    if (text.includes("INSERT INTO customer_leads")) {
       valuesSeen = values;
       return Promise.resolve({
         rows: [{
@@ -44,7 +45,16 @@ test("stores a lead with token and payload digests instead of the raw token", as
           submitted_at: submittedAt,
         }],
       });
-    },
+    }
+    return Promise.resolve({ rows: [] });
+  };
+  const client = {
+    query,
+    release: () => undefined,
+  };
+  const pool = {
+    query,
+    connect: () => Promise.resolve(client),
   } as unknown as Pool;
 
   assert.deepEqual(
@@ -58,6 +68,9 @@ test("stores a lead with token and payload digests instead of the raw token", as
     ),
     true,
   );
+  assert.equal(statements[0], "BEGIN");
+  assert.match(statements.join("\n"), /INSERT INTO customer_lead_notifications/u);
+  assert.equal(statements.at(-1), "COMMIT");
 });
 
 test("lists only bounded lead fields with parameterized filters", async () => {
@@ -136,6 +149,7 @@ test("records a valid lead transition and bounded actor identity atomically", as
     { leadId, status: "QUALIFIED", updatedAt: submittedAt },
   );
   assert.equal(statements[0], "BEGIN");
+  assert.match(statements.join("\n"), /INSERT INTO customer_lead_notifications/u);
   assert.equal(statements.at(-1), "COMMIT");
 });
 
@@ -165,4 +179,98 @@ test("rejects skipped or terminal qualification transitions", async () => {
     /cannot transition from NEW to PROPOSAL_SENT/u,
   );
   assert.equal(rolledBack, true);
+});
+
+test("reuses the stored qualification time for an idempotent transition", async () => {
+  const statements: string[] = [];
+  const client = {
+    query: (text: string, values?: readonly unknown[]) => {
+      statements.push(text.replace(/\s+/gu, " ").trim());
+      if (text.includes("SELECT lead_id, status, updated_at")) {
+        return Promise.resolve({
+          rows: [{
+            lead_id: leadId,
+            status: "QUALIFIED",
+            updated_at: submittedAt,
+          }],
+        });
+      }
+      if (text.includes("INSERT INTO customer_lead_notifications")) {
+        assert.equal(values?.[0], `qualified-lead:${leadId}`);
+        assert.equal(values?.[3], submittedAt);
+      }
+      return Promise.resolve({ rows: [] });
+    },
+    release: () => undefined,
+  };
+  const pool = {
+    connect: () => Promise.resolve(client),
+  } as unknown as Pool;
+
+  assert.deepEqual(
+    await new PostgresCustomerLeadStore(pool).transitionLead(
+      leadId,
+      "QUALIFIED",
+      { provider: "LEGACY", role: "ADMIN" },
+      "2026-09-16T17:00:00.000Z",
+    ),
+    { leadId, status: "QUALIFIED", updatedAt: submittedAt },
+  );
+  assert.doesNotMatch(statements.join("\n"), /UPDATE customer_leads SET status/u);
+  assert.match(statements.join("\n"), /INSERT INTO customer_lead_notifications/u);
+});
+
+test("claims, completes, and reschedules bounded notification records", async () => {
+  const statements: Array<{ text: string; values?: readonly unknown[] }> = [];
+  const pool = {
+    query: (text: string, values?: readonly unknown[]) => {
+      statements.push({
+        text: text.replace(/\s+/gu, " ").trim(),
+        ...(values === undefined ? {} : { values }),
+      });
+      if (text.includes("WITH candidate AS")) {
+        return Promise.resolve({
+          rows: [{
+            notification_id: `customer-lead:received:${leadId}`,
+            event: "RECEIVED",
+            lead_id: leadId,
+            occurred_at: submittedAt,
+            attempts: 2,
+          }],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    },
+  } as unknown as Pool;
+  const store = new PostgresCustomerLeadStore(pool);
+
+  assert.deepEqual(
+    await store.claimNotification(
+      "2026-09-16T16:00:00.000Z",
+      "2026-09-16T16:00:30.000Z",
+    ),
+    {
+      notificationId: `customer-lead:received:${leadId}`,
+      event: "RECEIVED",
+      leadId,
+      occurredAt: submittedAt,
+      attempts: 2,
+    },
+  );
+  await store.completeNotification(
+    `customer-lead:received:${leadId}`,
+    "2026-09-16T16:01:00.000Z",
+  );
+  await store.retryNotification(
+    `customer-lead:received:${leadId}`,
+    "2026-09-16T16:02:00.000Z",
+  );
+
+  assert.match(statements[0]?.text ?? "", /FOR UPDATE SKIP LOCKED/u);
+  assert.deepEqual(statements[0]?.values, [
+    "2026-09-16T16:00:00.000Z",
+    "2026-09-16T16:00:30.000Z",
+  ]);
+  assert.match(statements[1]?.text ?? "", /SET delivered_at = \$2/u);
+  assert.match(statements[2]?.text ?? "", /SET next_attempt_at = \$2/u);
 });

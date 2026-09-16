@@ -928,6 +928,30 @@ test("GET serves the public security, architecture, and case-study disclosures",
   assert.match(await caseStudyResponse.text(), /CanaryGuard case study/u);
 });
 
+test("GET serves crawler discovery files for the canonical custom domain", async () => {
+  const robotsResponse = await fetch(`${baseUrl}/robots.txt`);
+  const sitemapResponse = await fetch(`${baseUrl}/sitemap.xml`);
+
+  assert.equal(robotsResponse.status, 200);
+  assert.match(
+    robotsResponse.headers.get("content-type") ?? "",
+    /^text\/plain;/u,
+  );
+  assert.match(
+    await robotsResponse.text(),
+    /Sitemap: https:\/\/canaryguard\.nextedgeanalytics\.com\/sitemap\.xml/u,
+  );
+  assert.equal(sitemapResponse.status, 200);
+  assert.match(
+    sitemapResponse.headers.get("content-type") ?? "",
+    /^application\/xml;/u,
+  );
+  assert.match(
+    await sitemapResponse.text(),
+    /<loc>https:\/\/canaryguard\.nextedgeanalytics\.com\/</u,
+  );
+});
+
 test("POST /customer-leads accepts a bounded public request without authentication", async () => {
   const callsBefore = customerLeadSubmissions;
   const response = await fetch(`${baseUrl}/customer-leads`, {
