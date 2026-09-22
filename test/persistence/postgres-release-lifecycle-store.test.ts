@@ -220,8 +220,12 @@ test("requires all lifecycle and reporting migrations at startup", async () => {
           version:
             "009_customer_lead_notification_outbox",
         },
+        {
+          version:
+            "010_customer_intake_quota_index",
+        },
       ],
-      rowCount: 9,
+      rowCount: 10,
     }),
   } as unknown as Pool;
 

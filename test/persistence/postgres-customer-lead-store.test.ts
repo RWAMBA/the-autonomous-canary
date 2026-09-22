@@ -46,6 +46,9 @@ test("stores a lead with token and payload digests instead of the raw token", as
         }],
       });
     }
+    if (text.includes("COUNT(*)") && text.includes("customer_leads")) {
+      return Promise.resolve({ rows: [{ recent_total: "0", recent_email: "0" }] });
+    }
     return Promise.resolve({ rows: [] });
   };
   const client = {
@@ -71,6 +74,73 @@ test("stores a lead with token and payload digests instead of the raw token", as
   assert.equal(statements[0], "BEGIN");
   assert.match(statements.join("\n"), /INSERT INTO customer_lead_notifications/u);
   assert.equal(statements.at(-1), "COMMIT");
+});
+
+test("rejects an over-quota new lead before persistence and rolls back", async () => {
+  const statements: string[] = [];
+  const client = {
+    query: (text: string) => {
+      statements.push(text);
+      if (text.includes("SELECT lead_id, status, submitted_at, payload_sha256")) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (text.includes("COUNT(*)") && text.includes("customer_leads")) {
+        return Promise.resolve({ rows: [{ recent_total: "120", recent_email: "0" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    },
+    release: () => undefined,
+  };
+  const pool = { connect: () => Promise.resolve(client) } as unknown as Pool;
+
+  await assert.rejects(
+    new PostgresCustomerLeadStore(pool).createLead(newLead()),
+    (error: unknown) => error instanceof Error && "statusCode" in error
+      && error.statusCode === 429,
+  );
+  assert.equal(statements.some((statement) => statement.includes("INSERT INTO customer_leads")), false);
+  assert.equal(statements.at(-1), "ROLLBACK");
+});
+
+test("applies the per-email quota across instances while preserving token retries", async () => {
+  const statements: string[] = [];
+  let existing = false;
+  const client = {
+    query: (text: string) => {
+      statements.push(text);
+      if (text.includes("SELECT lead_id, status, submitted_at, payload_sha256")) {
+        return Promise.resolve({ rows: existing ? [{
+          lead_id: leadId,
+          status: "NEW",
+          submitted_at: submittedAt,
+          payload_sha256: createHash("sha256").update(JSON.stringify({
+            contactName: newLead().contactName,
+            workEmail: newLead().workEmail,
+            organizationName: newLead().organizationName,
+            service: newLead().service,
+            repositoryOwner: newLead().repositoryOwner,
+            repositoryName: newLead().repositoryName,
+            challenge: newLead().challenge,
+          })).digest("hex"),
+        }] : [] });
+      }
+      if (text.includes("COUNT(*)") && text.includes("customer_leads")) {
+        return Promise.resolve({ rows: [{ recent_total: "1", recent_email: "3" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    },
+    release: () => undefined,
+  };
+  const pool = { connect: () => Promise.resolve(client) } as unknown as Pool;
+  const store = new PostgresCustomerLeadStore(pool);
+  await assert.rejects(store.createLead(newLead()), (error: unknown) =>
+    error instanceof Error && "statusCode" in error && error.statusCode === 429);
+  existing = true;
+  assert.deepEqual(await store.createLead(newLead()), {
+    leadId, status: "NEW", submittedAt,
+  });
+  assert.equal(statements.filter((sql) => sql.includes("INSERT INTO customer_leads")).length, 0);
+  assert.equal(statements.filter((sql) => sql.includes("COUNT(*)")).length, 1);
 });
 
 test("lists only bounded lead fields with parameterized filters", async () => {

@@ -1255,7 +1255,7 @@ Phase 8 adds one bounded acquisition path without turning CanaryGuard into a bil
 
 The two primary calls to action are **Request a release-risk assessment** and **Request a managed deployment**. Both use the same validated `POST /customer-leads` boundary. A submission collects only a name, work email, organization, service, optional repository owner/name, a bounded challenge description, consent, and a client-generated idempotency token. The endpoint rejects credential-shaped content. It never asks for or stores source archives, source code, API keys, private keys, production passwords, raw logs, deployment configuration, contracts, quotations, invoices, or payment details.
 
-Customer-lead idempotency tokens and payload correlation values are stored only as SHA-256 digests. Each record receives a 180-day retention deadline; operators remain responsible for deleting or lawfully extending records at that deadline. A hidden honeypot field discards basic automated submissions without revealing the filter. These controls reduce accidental duplication and unsafe intake; they are not a substitute for an edge WAF or distributed abuse controls.
+Customer-lead idempotency tokens and payload correlation values are stored only as SHA-256 digests. Each record receives a 180-day retention deadline; operators remain responsible for deleting or lawfully extending records at that deadline. A hidden honeypot field discards basic automated submissions without revealing the filter. PostgreSQL serializes intake quotas across instances: 120 new requests per rolling hour globally and three per work email per rolling day. Exhausting either quota returns HTTP 429; an unchanged submission token can still be retried without creating another lead. The quota relies on stored timestamps and normalized email matching, not untrusted forwarded IP headers. Add an edge WAF for network-level filtering. A malicious actor can exhaust the global quota; monitor 429 spikes and adjust the cap after measuring legitimate traffic.
 
 After authentication with an `ADMIN` credential belonging to the single tenant configured by `CANARYGUARD_CUSTOMER_ACQUISITION_ADMIN_TENANT_ID`, an operator can load the acquisition queue in `/management` or call:
 
@@ -1268,6 +1268,8 @@ curl --fail --silent --show-error \
 Qualification is an explicit state machine: `NEW` may become `QUALIFIED` or `CLOSED`; `QUALIFIED` may become `PROPOSAL_SENT` or `CLOSED`; `PROPOSAL_SENT` may become `ENGAGED` or `CLOSED`; and `ENGAGED` may become `CLOSED`. Closed records cannot be reopened through the API. Transitions record bounded actor identifiers but no free-form operator notes. `AUTOMATION` and `VIEWER` credentials cannot read or mutate customer leads.
 
 Creating a request and moving a request to `QUALIFIED` each enqueue a bounded notification in the same PostgreSQL transaction as the lead change. The public request succeeds after that transaction commits; relay availability is no longer part of the intake response. A leased worker sends due notifications, retries failures with bounded exponential backoff, and relies on stable event-specific idempotency keys so recovery after a timeout or process restart cannot intentionally duplicate an email. The relay receives only the configured recipient, fixed event-specific subject, lead UUID, event time, and idempotency key; it does not receive contact details or challenge text. `CANARYGUARD_QUALIFIED_LEAD_NOTIFICATION_API_KEY` stays in the runtime environment. The browser also reuses a submission token when the same payload is retried and rotates it if the payload changes.
+
+The worker samples undelivered notifications each minute. It logs `canaryguard.customer_lead_notification.backlog_alert` when any notification is older than 15 minutes or has at least five delivery attempts, and repeats the alert at most every five minutes while the backlog remains unhealthy. It logs `canaryguard.customer_lead_notification.backlog_recovered` when those conditions clear, and `canaryguard.customer_lead_notification.monitor_failed` if monitoring cannot query PostgreSQL. These events include counts only. Route both alert and monitor-failure events from service logs to an operator alert channel independent of the email relay; verify the alert route and recovery signal before onboarding paying customers. Check the protected request queue daily even when no alert is present.
 
 Example qualification request:
 
@@ -1284,9 +1286,9 @@ The remaining commercial flow is deliberately manual: qualify the request, agree
 
 ### Phase 8 production activation
 
-Migrations `008_direct_customer_acquisition` and `009_customer_lead_notification_outbox` must be applied before enabling lead persistence. Use a staged deployment:
+Migrations `008_direct_customer_acquisition`, `009_customer_lead_notification_outbox`, and `010_customer_intake_quota_index` must be applied before deploying this revision. Use a staged deployment:
 
-1. Keep `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED` and apply migrations 008 and 009 from a protected administrative environment.
+1. Keep `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED` and apply migrations 008, 009, and 010 from a protected administrative environment.
 2. Deploy the new revision and verify `/`, `/health`, `/version`, and the existing review/reporting workflows. Public submissions correctly return an unavailable response while disabled.
 3. Confirm `CANARYGUARD_AUTHORIZATION_PROVIDER=POSTGRES`, set `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=POSTGRES`, set `CANARYGUARD_CUSTOMER_ACQUISITION_ADMIN_TENANT_ID` to the platform operator tenant UUID, configure the qualified-lead notification URL, API key, and recipient, and redeploy the same revision. Startup fails closed if PostgreSQL tenant authorization or persistence is unavailable.
 4. Submit a non-sensitive test lead, verify it appears for the configured tenant's `ADMIN` credential, verify the `RECEIVED` notification is delivered from the outbox, qualify it through the allowed state sequence, verify the `QUALIFIED` notification, and verify another tenant's `ADMIN`, `AUTOMATION`, `VIEWER`, and unauthenticated management requests are rejected.
@@ -1296,7 +1298,7 @@ Do not accept customer requests during the migration/deployment interval. Migrat
 
 1. Stop public intake and export any leads that must be retained through an approved private channel.
 2. Set `CANARYGUARD_CUSTOMER_ACQUISITION_PROVIDER=DISABLED`, deploy, and drain every migration-008-capable process.
-3. Run `db/rollbacks/009_customer_lead_notification_outbox.sql`, then `db/rollbacks/008_direct_customer_acquisition.sql`, from the protected administrative environment.
+3. Run `db/rollbacks/010_customer_intake_quota_index.sql`, then `db/rollbacks/009_customer_lead_notification_outbox.sql`, then `db/rollbacks/008_direct_customer_acquisition.sql`, from the protected administrative environment.
 4. Redeploy revision `0a3277ca095cf9628ffd68993e6840f965d3d7ee`.
 
 The rollback drops customer lead and status-event tables and restores the previous authorization-permission constraint; it does not modify release records.
@@ -1419,7 +1421,7 @@ The current MVP intentionally has these limitations:
 - persistence is optional and requires an operator-provisioned PostgreSQL database and migration step
 - legacy mode uses one service-level API key; PostgreSQL mode supports operator-provisioned tenant credentials and repository grants
 - self-service tenant signup, billing, invitations, and credential rotation are not implemented
-- request quotas and distributed rate limiting are not implemented
+- edge WAF rules and delivery of log alerts to an external paging channel require operator configuration
 - process-local replay and queue behavior remains available only when persistence is intentionally disabled
 - automated workflow processing requires exactly one pull request in the completed `workflow_run` payload
 - direct pull-request events are ingested only when PostgreSQL persistence is enabled

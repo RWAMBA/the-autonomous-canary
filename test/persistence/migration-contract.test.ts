@@ -77,6 +77,25 @@ const customerLeadNotificationRollbackUrl = new URL(
   import.meta.url,
 );
 
+const customerIntakeQuotaMigrationUrl = new URL(
+  "../../db/migrations/010_customer_intake_quota_index.sql",
+  import.meta.url,
+);
+
+const customerIntakeQuotaRollbackUrl = new URL(
+  "../../db/rollbacks/010_customer_intake_quota_index.sql",
+  import.meta.url,
+);
+
+test("indexes the shared intake quota and supports additive rollback", async () => {
+  const migration = await readFile(customerIntakeQuotaMigrationUrl, "utf8");
+  const rollback = await readFile(customerIntakeQuotaRollbackUrl, "utf8");
+  assert.match(migration, /CREATE INDEX customer_leads_submitted_quota_idx/u);
+  assert.match(migration, /010_customer_intake_quota_index/u);
+  assert.match(rollback, /DROP INDEX customer_leads_submitted_quota_idx/u);
+  assert.doesNotMatch(rollback, /DROP TABLE customer_leads/u);
+});
+
 test("defines the complete release lifecycle under one release identifier", async () => {
   const migration = await readFile(
     migrationUrl,

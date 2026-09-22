@@ -40,6 +40,13 @@ export interface ClaimedCustomerLeadNotification {
 }
 
 export interface CustomerLeadNotificationOutbox {
+  notificationBacklog(
+    oldBefore: string,
+  ): Promise<{
+    readonly pending: number;
+    readonly oldCount: number;
+    readonly repeatedFailureCount: number;
+  }>;
   claimNotification(
     now: string,
     leaseExpiresAt: string,

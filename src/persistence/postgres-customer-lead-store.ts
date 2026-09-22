@@ -164,6 +164,56 @@ implements CustomerLeadStore, CustomerLeadNotificationOutbox {
 
     try {
       await client.query("BEGIN");
+      // Serialize intake quotas across every web instance, including edge proxies.
+      // Never use an untrusted forwarded IP header as the quota identity.
+      await client.query("SELECT pg_advisory_xact_lock($1)", [1_548_624_772]);
+      const replay = await client.query<CustomerLeadRow>(
+        `SELECT lead_id, status, submitted_at, payload_sha256
+         FROM customer_leads
+         WHERE submission_token_sha256 = $1
+         LIMIT 1`,
+        [tokenSha256],
+      );
+      const existingLead = replay.rows[0];
+
+      if (existingLead !== undefined) {
+        if (existingLead.payload_sha256 !== contentSha256) {
+          throw new HttpError({
+            statusCode: 409,
+            code: "SUBMISSION_TOKEN_CONFLICT",
+            message: "The submission token was already used for different lead data.",
+          });
+        }
+        const created = {
+          leadId: existingLead.lead_id,
+          status: "NEW" as const,
+          submittedAt: asIsoDateTime(existingLead.submitted_at, "submitted_at"),
+        };
+        await enqueueNotification(client, "RECEIVED", created.leadId, created.submittedAt);
+        await client.query("COMMIT");
+        return created;
+      }
+
+      const quota = await client.query<{ recent_total: string; recent_email: string }>(
+        `SELECT COUNT(*) FILTER (WHERE submitted_at >= $1::timestamptz - interval '1 hour') AS recent_total,
+                COUNT(*) FILTER (WHERE submitted_at >= $1::timestamptz - interval '1 day'
+                  AND lower(work_email) = lower($2)) AS recent_email
+         FROM customer_leads
+         WHERE submitted_at >= $1::timestamptz - interval '1 day'`,
+        [lead.submittedAt, lead.workEmail],
+      );
+      const recentTotal = Number(quota.rows[0]?.recent_total);
+      const recentEmail = Number(quota.rows[0]?.recent_email);
+      if (!Number.isSafeInteger(recentTotal) || !Number.isSafeInteger(recentEmail)) {
+        throw new Error("Customer intake quota is unavailable.");
+      }
+      if (recentTotal >= 120 || recentEmail >= 3) {
+        throw new HttpError({
+          statusCode: 429,
+          code: "CUSTOMER_INTAKE_RATE_LIMITED",
+          message: "Assessment requests are temporarily limited. Please try again later.",
+        });
+      }
       const result = await client.query<CustomerLeadRow>(
         `INSERT INTO customer_leads (
            lead_id,
@@ -439,6 +489,30 @@ implements CustomerLeadStore, CustomerLeadNotificationOutbox {
       leadId: row.lead_id,
       occurredAt: asIsoDateTime(row.occurred_at, "occurred_at"),
       attempts: row.attempts,
+    };
+  }
+
+  async notificationBacklog(oldBefore: string): Promise<{
+    readonly pending: number;
+    readonly oldCount: number;
+    readonly repeatedFailureCount: number;
+  }> {
+    const result = await this.pool.query<{
+      pending: string;
+      old_count: string;
+      repeated_failure_count: string;
+    }>(
+      `SELECT COUNT(*) AS pending,
+              COUNT(*) FILTER (WHERE created_at <= $1) AS old_count,
+              COUNT(*) FILTER (WHERE attempts >= 5) AS repeated_failure_count
+       FROM customer_lead_notifications
+       WHERE delivered_at IS NULL`,
+      [oldBefore],
+    );
+    return {
+      pending: Number(result.rows[0]?.pending),
+      oldCount: Number(result.rows[0]?.old_count),
+      repeatedFailureCount: Number(result.rows[0]?.repeated_failure_count),
     };
   }
 

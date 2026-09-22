@@ -46,6 +46,7 @@ import {
 import {
   maximumJsonBodyBytes,
 } from "../src/middleware/read-json-body.js";
+import { HttpError } from "../src/middleware/http-error.js";
 import {
   createReviewApiKeyAuthenticator,
 } from "../src/middleware/require-review-api-key.js";
@@ -969,6 +970,44 @@ test("POST /customer-leads accepts a bounded public request without authenticati
     submittedAt:
       "2026-09-08T20:00:00.000Z",
   });
+});
+
+test("POST /customer-leads returns 429 when the intake quota is exhausted", async () => {
+  const handler = createRequestHandler(
+    { channel: "canary", commitSha: "abc123", version: "1.2.3" },
+    createFailureSimulator(0),
+    {
+      customerLeadController: {
+        ...customerLeadController,
+        submitLead: () => Promise.reject(new HttpError({
+          statusCode: 429,
+          code: "CUSTOMER_INTAKE_RATE_LIMITED",
+          message: "Assessment requests are temporarily limited. Please try again later.",
+        })),
+      },
+    },
+  );
+  const intakeServer = createServer(handler);
+  await new Promise<void>((resolve) => intakeServer.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = intakeServer.address();
+    assert.ok(address && typeof address !== "string");
+    const response = await fetch(`http://127.0.0.1:${address.port}/customer-leads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: "CUSTOMER_INTAKE_RATE_LIMITED",
+        message: "Assessment requests are temporarily limited. Please try again later.",
+      },
+    });
+  } finally {
+    await new Promise<void>((resolve) => intakeServer.close(() => resolve()));
+  }
 });
 
 test("customer-lead management authenticates with the dedicated permission", async () => {

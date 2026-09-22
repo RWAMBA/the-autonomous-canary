@@ -159,6 +159,8 @@
         throw new Error(
           response.status === 503
             ? "Customer intake is temporarily unavailable. Please try again later."
+            : response.status === 429
+              ? "Assessment requests are temporarily limited. Please try again later."
             : response.status === 400
               ? `Review the submitted fields. ${repositoryFormatMessage}`
               : body?.error?.message ?? "The request could not be submitted.",
