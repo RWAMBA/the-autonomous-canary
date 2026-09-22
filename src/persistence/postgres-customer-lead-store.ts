@@ -19,8 +19,16 @@ import type {
   TenantAuthorizationContext,
 } from "../authorization/tenant-authorization.js";
 import { HttpError } from "../middleware/http-error.js";
+import {
+  createCustomerLeadNotificationId,
+} from "../customer-lead-notification.js";
 import type {
+  CustomerLeadNotificationEvent,
+} from "../customer-lead-notification.js";
+import type {
+  ClaimedCustomerLeadNotification,
   CreatedCustomerLead,
+  CustomerLeadNotificationOutbox,
   CustomerLeadStore,
   NewCustomerLead,
 } from "./customer-lead-store.js";
@@ -39,6 +47,14 @@ interface CustomerLeadRow extends QueryResultRow {
   readonly updated_at: Date | string;
   readonly retention_expires_at: Date | string;
   readonly payload_sha256?: string;
+}
+
+interface CustomerLeadNotificationRow extends QueryResultRow {
+  readonly notification_id: string;
+  readonly event: CustomerLeadNotificationEvent;
+  readonly lead_id: string;
+  readonly occurred_at: Date | string;
+  readonly attempts: number;
 }
 
 const allowedTransitions: Readonly<
@@ -115,8 +131,28 @@ function notFound(): HttpError {
   });
 }
 
+async function enqueueNotification(
+  client: PoolClient,
+  event: CustomerLeadNotificationEvent,
+  leadId: string,
+  occurredAt: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO customer_lead_notifications (
+       notification_id,
+       lead_id,
+       event,
+       occurred_at,
+       next_attempt_at,
+       created_at
+     ) VALUES ($1, $2, $3, $4, $4, $4)
+     ON CONFLICT (notification_id) DO NOTHING`,
+    [createCustomerLeadNotificationId(event, leadId), leadId, event, occurredAt],
+  );
+}
+
 export class PostgresCustomerLeadStore
-implements CustomerLeadStore {
+implements CustomerLeadStore, CustomerLeadNotificationOutbox {
   constructor(private readonly pool: Pool) {}
 
   async createLead(
@@ -124,77 +160,147 @@ implements CustomerLeadStore {
   ): Promise<CreatedCustomerLead> {
     const tokenSha256 = digest(lead.submissionToken);
     const contentSha256 = payloadDigest(lead);
-    const result = await this.pool.query<CustomerLeadRow>(
-      `INSERT INTO customer_leads (
-         lead_id,
-         contact_name,
-         work_email,
-         organization_name,
-         service,
-         repository_owner,
-         repository_name,
-         challenge,
-         consented_at,
-         submission_token_sha256,
-         payload_sha256,
-         submitted_at,
-         updated_at,
-         retention_expires_at
-       ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8,
-         $9, $10, $11, $12, $12,
-         $12::timestamptz + interval '180 days'
-       )
-       ON CONFLICT (submission_token_sha256) DO NOTHING
-       RETURNING lead_id, status, submitted_at`,
-      [
-        lead.leadId,
-        lead.contactName,
-        lead.workEmail,
-        lead.organizationName,
-        lead.service,
-        lead.repositoryOwner ?? null,
-        lead.repositoryName ?? null,
-        lead.challenge,
-        lead.consentedAt,
-        tokenSha256,
-        contentSha256,
-        lead.submittedAt,
-      ],
-    );
-    const inserted = result.rows[0];
+    const client = await this.pool.connect();
 
-    if (inserted !== undefined) {
-      return {
-        leadId: inserted.lead_id,
-        status: "NEW",
-        submittedAt: asIsoDateTime(inserted.submitted_at, "submitted_at"),
-      };
+    try {
+      await client.query("BEGIN");
+      // Serialize intake quotas across every web instance, including edge proxies.
+      // Never use an untrusted forwarded IP header as the quota identity.
+      await client.query("SELECT pg_advisory_xact_lock($1)", [1_548_624_772]);
+      const replay = await client.query<CustomerLeadRow>(
+        `SELECT lead_id, status, submitted_at, payload_sha256
+         FROM customer_leads
+         WHERE submission_token_sha256 = $1
+         LIMIT 1`,
+        [tokenSha256],
+      );
+      const existingLead = replay.rows[0];
+
+      if (existingLead !== undefined) {
+        if (existingLead.payload_sha256 !== contentSha256) {
+          throw new HttpError({
+            statusCode: 409,
+            code: "SUBMISSION_TOKEN_CONFLICT",
+            message: "The submission token was already used for different lead data.",
+          });
+        }
+        const created = {
+          leadId: existingLead.lead_id,
+          status: "NEW" as const,
+          submittedAt: asIsoDateTime(existingLead.submitted_at, "submitted_at"),
+        };
+        await enqueueNotification(client, "RECEIVED", created.leadId, created.submittedAt);
+        await client.query("COMMIT");
+        return created;
+      }
+
+      const quota = await client.query<{ recent_total: string; recent_email: string }>(
+        `SELECT COUNT(*) FILTER (WHERE submitted_at >= $1::timestamptz - interval '1 hour') AS recent_total,
+                COUNT(*) FILTER (WHERE submitted_at >= $1::timestamptz - interval '1 day'
+                  AND lower(work_email) = lower($2)) AS recent_email
+         FROM customer_leads
+         WHERE submitted_at >= $1::timestamptz - interval '1 day'`,
+        [lead.submittedAt, lead.workEmail],
+      );
+      const recentTotal = Number(quota.rows[0]?.recent_total);
+      const recentEmail = Number(quota.rows[0]?.recent_email);
+      if (!Number.isSafeInteger(recentTotal) || !Number.isSafeInteger(recentEmail)) {
+        throw new Error("Customer intake quota is unavailable.");
+      }
+      if (recentTotal >= 120 || recentEmail >= 3) {
+        throw new HttpError({
+          statusCode: 429,
+          code: "CUSTOMER_INTAKE_RATE_LIMITED",
+          message: "Assessment requests are temporarily limited. Please try again later.",
+        });
+      }
+      const result = await client.query<CustomerLeadRow>(
+        `INSERT INTO customer_leads (
+           lead_id,
+           contact_name,
+           work_email,
+           organization_name,
+           service,
+           repository_owner,
+           repository_name,
+           challenge,
+           consented_at,
+           submission_token_sha256,
+           payload_sha256,
+           submitted_at,
+           updated_at,
+           retention_expires_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8,
+           $9, $10, $11, $12, $12,
+           $12::timestamptz + interval '180 days'
+         )
+         ON CONFLICT (submission_token_sha256) DO NOTHING
+         RETURNING lead_id, status, submitted_at`,
+        [
+          lead.leadId,
+          lead.contactName,
+          lead.workEmail,
+          lead.organizationName,
+          lead.service,
+          lead.repositoryOwner ?? null,
+          lead.repositoryName ?? null,
+          lead.challenge,
+          lead.consentedAt,
+          tokenSha256,
+          contentSha256,
+          lead.submittedAt,
+        ],
+      );
+      const inserted = result.rows[0];
+      let created: CreatedCustomerLead;
+
+      if (inserted !== undefined) {
+        created = {
+          leadId: inserted.lead_id,
+          status: "NEW",
+          submittedAt: asIsoDateTime(inserted.submitted_at, "submitted_at"),
+        };
+      } else {
+        const existing = await client.query<CustomerLeadRow>(
+          `SELECT lead_id, status, submitted_at, payload_sha256
+           FROM customer_leads
+           WHERE submission_token_sha256 = $1
+           LIMIT 1`,
+          [tokenSha256],
+        );
+        const row = existing.rows[0];
+
+        if (row === undefined || row.payload_sha256 !== contentSha256) {
+          throw new HttpError({
+            statusCode: 409,
+            code: "SUBMISSION_TOKEN_CONFLICT",
+            message:
+              "The submission token was already used for different lead data.",
+          });
+        }
+
+        created = {
+          leadId: row.lead_id,
+          status: "NEW",
+          submittedAt: asIsoDateTime(row.submitted_at, "submitted_at"),
+        };
+      }
+
+      await enqueueNotification(
+        client,
+        "RECEIVED",
+        created.leadId,
+        created.submittedAt,
+      );
+      await client.query("COMMIT");
+      return created;
+    } catch (error) {
+      await this.rollback(client, error);
+      throw error;
+    } finally {
+      client.release();
     }
-
-    const existing = await this.pool.query<CustomerLeadRow>(
-      `SELECT lead_id, status, submitted_at, payload_sha256
-       FROM customer_leads
-       WHERE submission_token_sha256 = $1
-       LIMIT 1`,
-      [tokenSha256],
-    );
-    const row = existing.rows[0];
-
-    if (row === undefined || row.payload_sha256 !== contentSha256) {
-      throw new HttpError({
-        statusCode: 409,
-        code: "SUBMISSION_TOKEN_CONFLICT",
-        message:
-          "The submission token was already used for different lead data.",
-      });
-    }
-
-    return {
-      leadId: row.lead_id,
-      status: "NEW",
-      submittedAt: asIsoDateTime(row.submitted_at, "submitted_at"),
-    };
   }
 
   async listLeads(
@@ -247,7 +353,7 @@ implements CustomerLeadStore {
     try {
       await client.query("BEGIN");
       const current = await client.query<CustomerLeadRow>(
-        `SELECT lead_id, status
+        `SELECT lead_id, status, updated_at
          FROM customer_leads
          WHERE lead_id = $1
          FOR UPDATE`,
@@ -260,11 +366,21 @@ implements CustomerLeadStore {
       }
 
       if (row.status === status) {
+        const updatedAt = asIsoDateTime(row.updated_at, "updated_at");
+
+        if (status === "QUALIFIED") {
+          await enqueueNotification(
+            client,
+            "QUALIFIED",
+            leadId,
+            updatedAt,
+          );
+        }
         await client.query("COMMIT");
         return parseCustomerLeadTransitionReceipt({
           leadId,
           status,
-          updatedAt: occurredAt,
+          updatedAt,
         });
       }
 
@@ -309,6 +425,15 @@ implements CustomerLeadStore {
           occurredAt,
         ],
       );
+
+      if (status === "QUALIFIED") {
+        await enqueueNotification(
+          client,
+          "QUALIFIED",
+          leadId,
+          occurredAt,
+        );
+      }
       await client.query("COMMIT");
 
       return parseCustomerLeadTransitionReceipt({
@@ -322,6 +447,105 @@ implements CustomerLeadStore {
     } finally {
       client.release();
     }
+  }
+
+  async claimNotification(
+    now: string,
+    leaseExpiresAt: string,
+  ): Promise<ClaimedCustomerLeadNotification | undefined> {
+    const result = await this.pool.query<CustomerLeadNotificationRow>(
+      `WITH candidate AS (
+         SELECT notification_id
+         FROM customer_lead_notifications
+         WHERE delivered_at IS NULL
+           AND next_attempt_at <= $1
+           AND (lease_expires_at IS NULL OR lease_expires_at <= $1)
+         ORDER BY next_attempt_at, created_at, notification_id
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+       )
+       UPDATE customer_lead_notifications AS notification
+       SET lease_expires_at = $2,
+           attempts = notification.attempts + 1
+       FROM candidate
+       WHERE notification.notification_id = candidate.notification_id
+       RETURNING
+         notification.notification_id,
+         notification.event,
+         notification.lead_id,
+         notification.occurred_at,
+         notification.attempts`,
+      [now, leaseExpiresAt],
+    );
+    const row = result.rows[0];
+
+    if (row === undefined) {
+      return undefined;
+    }
+
+    return {
+      notificationId: row.notification_id,
+      event: row.event,
+      leadId: row.lead_id,
+      occurredAt: asIsoDateTime(row.occurred_at, "occurred_at"),
+      attempts: row.attempts,
+    };
+  }
+
+  async notificationBacklog(oldBefore: string): Promise<{
+    readonly pending: number;
+    readonly oldCount: number;
+    readonly repeatedFailureCount: number;
+  }> {
+    const result = await this.pool.query<{
+      pending: string;
+      old_count: string;
+      repeated_failure_count: string;
+    }>(
+      `SELECT COUNT(*) AS pending,
+              COUNT(*) FILTER (WHERE created_at <= $1) AS old_count,
+              COUNT(*) FILTER (WHERE attempts >= 5) AS repeated_failure_count
+       FROM customer_lead_notifications
+       WHERE delivered_at IS NULL`,
+      [oldBefore],
+    );
+    return {
+      pending: Number(result.rows[0]?.pending),
+      oldCount: Number(result.rows[0]?.old_count),
+      repeatedFailureCount: Number(result.rows[0]?.repeated_failure_count),
+    };
+  }
+
+  async completeNotification(
+    notificationIdValue: string,
+    deliveredAt: string,
+    claimAttempt: number,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE customer_lead_notifications
+       SET delivered_at = $2,
+           lease_expires_at = NULL
+       WHERE notification_id = $1
+         AND delivered_at IS NULL
+         AND attempts = $3`,
+      [notificationIdValue, deliveredAt, claimAttempt],
+    );
+  }
+
+  async retryNotification(
+    notificationIdValue: string,
+    nextAttemptAt: string,
+    claimAttempt: number,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE customer_lead_notifications
+       SET next_attempt_at = $2,
+           lease_expires_at = NULL
+       WHERE notification_id = $1
+         AND delivered_at IS NULL
+         AND attempts = $3`,
+      [notificationIdValue, nextAttemptAt, claimAttempt],
+    );
   }
 
   private async rollback(

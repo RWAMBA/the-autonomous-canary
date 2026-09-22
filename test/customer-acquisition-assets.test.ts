@@ -28,6 +28,7 @@ test("serves a public acquisition page with roadmap services and safe boundaries
   assert.match(html, /name="workEmail"/u);
   assert.match(html, /Interactive decision demo/u);
   assert.match(html, /data-demo-scenario="critical-secret"/u);
+  assert.match(html, /data-demo-scenario="threshold-breach"/u);
   assert.match(html, /name="consent"/u);
   assert.doesNotMatch(
     html,
@@ -41,6 +42,9 @@ test("implements the product demo with fixed DOM-safe scenarios", () => {
   const script = getCustomerAcquisitionAsset("/acquisition.js")?.body.toString("utf8") ?? "";
 
   assert.match(script, /critical-secret/u);
+  assert.match(script, /threshold-breach/u);
+  assert.match(script, /decision: "ROLLBACK"/u);
+  assert.match(script, /pendingSubmission/u);
   assert.match(script, /deterministic policy blocks deployment/iu);
   assert.match(script, /textContent/u);
   assert.doesNotMatch(script, /innerHTML|eval\(|new Function/u);
@@ -136,4 +140,49 @@ test("publishes public licensing terms and actionable repository guidance", () =
   assert.match(script, /validity\.patternMismatch/u);
   assert.match(script, /no spaces/u);
   assert.match(script, /response\.status === 400/u);
+});
+
+test("publishes canonical search-discovery assets for the custom domain", () => {
+  const origin = "https://canaryguard.nextedgeanalytics.com";
+  const publicRoutes = [
+    ["/", "/"],
+    ["/security", "/security"],
+    ["/architecture", "/architecture"],
+    ["/case-study", "/case-study"],
+    ["/licensing", "/licensing"],
+  ] as const;
+
+  for (const [pathname, canonicalPath] of publicRoutes) {
+    const html = getCustomerAcquisitionAsset(pathname)?.body.toString("utf8") ?? "";
+    const canonicalUrl = `${origin}${canonicalPath}`;
+
+    assert.match(
+      html,
+      new RegExp(`<link rel="canonical" href="${canonicalUrl}">`, "u"),
+    );
+    assert.match(
+      html,
+      new RegExp(`<meta property="og:url" content="${canonicalUrl}">`, "u"),
+    );
+    assert.match(html, /<meta property="og:site_name" content="CanaryGuard">/u);
+    assert.match(html, /<meta property="og:type" content="website">/u);
+  }
+
+  const robots = getCustomerAcquisitionAsset("/robots.txt");
+  assert.equal(robots?.contentType, "text/plain; charset=utf-8");
+  assert.match(robots?.body.toString("utf8") ?? "", /User-agent: \*/u);
+  assert.match(robots?.body.toString("utf8") ?? "", /Allow: \//u);
+  assert.match(
+    robots?.body.toString("utf8") ?? "",
+    /Sitemap: https:\/\/canaryguard\.nextedgeanalytics\.com\/sitemap\.xml/u,
+  );
+
+  const sitemap = getCustomerAcquisitionAsset("/sitemap.xml");
+  assert.equal(sitemap?.contentType, "application/xml; charset=utf-8");
+  const sitemapXml = sitemap?.body.toString("utf8") ?? "";
+  assert.match(sitemapXml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/u);
+  for (const [, canonicalPath] of publicRoutes) {
+    assert.match(sitemapXml, new RegExp(`<loc>${origin}${canonicalPath}</loc>`, "u"));
+  }
+  assert.doesNotMatch(sitemapXml, /\/management|\/health|\/version|\/customer-leads/u);
 });
