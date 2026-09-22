@@ -1,0 +1,6 @@
+{
+  "name": "canaryguard-lead-email-relay",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-22",
+  "workers_dev": true
+}
