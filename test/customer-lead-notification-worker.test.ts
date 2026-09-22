@@ -36,8 +36,8 @@ test("delivers one claimed notification and marks the outbox row complete", asyn
       assert.equal(leaseExpiresAt, "2026-09-16T16:01:30.000Z");
       return Promise.resolve(notification);
     },
-    completeNotification: (notificationId, deliveredAt) => {
-      completed = { notificationId, deliveredAt };
+    completeNotification: (notificationId, deliveredAt, claimAttempt) => {
+      completed = { notificationId, deliveredAt, claimAttempt };
       return Promise.resolve();
     },
     retryNotification: () => Promise.reject(new Error("must not retry")),
@@ -65,6 +65,7 @@ test("delivers one claimed notification and marks the outbox row complete", asyn
   assert.deepEqual(completed, {
     notificationId: notification.notificationId,
     deliveredAt: "2026-09-16T16:01:00.000Z",
+    claimAttempt: 1,
   });
 });
 
@@ -77,8 +78,8 @@ test("reschedules a failed notification without logging relay details", async ()
       attempts: 3,
     }),
     completeNotification: () => Promise.reject(new Error("must not complete")),
-    retryNotification: (notificationId, nextAttemptAt) => {
-      retried = { notificationId, nextAttemptAt };
+    retryNotification: (notificationId, nextAttemptAt, claimAttempt) => {
+      retried = { notificationId, nextAttemptAt, claimAttempt };
       return Promise.resolve();
     },
     notificationBacklog: () => Promise.resolve({ pending: 0, oldCount: 0, repeatedFailureCount: 0 }),
@@ -101,6 +102,7 @@ test("reschedules a failed notification without logging relay details", async ()
   assert.deepEqual(retried, {
     notificationId: notification.notificationId,
     nextAttemptAt: "2026-09-16T16:05:00.000Z",
+    claimAttempt: 3,
   });
   assert.equal(logs.length, 1);
   assert.equal(

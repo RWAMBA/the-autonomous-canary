@@ -54,10 +54,12 @@ export interface CustomerLeadNotificationOutbox {
   completeNotification(
     notificationId: string,
     deliveredAt: string,
+    claimAttempt: number,
   ): Promise<void>;
   retryNotification(
     notificationId: string,
     nextAttemptAt: string,
+    claimAttempt: number,
   ): Promise<void>;
 }
 

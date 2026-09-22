@@ -154,6 +154,7 @@ export class CustomerLeadNotificationWorker {
       await this.outbox.completeNotification(
         claimed.notificationId,
         this.clock().toISOString(),
+        claimed.attempts,
       );
     } catch {
       const exponent = Math.min(Math.max(claimed.attempts - 1, 0), 30);
@@ -164,6 +165,7 @@ export class CustomerLeadNotificationWorker {
       await this.outbox.retryNotification(
         claimed.notificationId,
         new Date(claimedAt.getTime() + retryDelay).toISOString(),
+        claimed.attempts,
       );
       this.logger({
         event: "canaryguard.customer_lead_notification.retry_scheduled",

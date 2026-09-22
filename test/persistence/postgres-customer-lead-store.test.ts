@@ -330,10 +330,12 @@ test("claims, completes, and reschedules bounded notification records", async ()
   await store.completeNotification(
     `customer-lead:received:${leadId}`,
     "2026-09-16T16:01:00.000Z",
+    2,
   );
   await store.retryNotification(
     `customer-lead:received:${leadId}`,
     "2026-09-16T16:02:00.000Z",
+    2,
   );
 
   assert.match(statements[0]?.text ?? "", /FOR UPDATE SKIP LOCKED/u);
@@ -343,4 +345,62 @@ test("claims, completes, and reschedules bounded notification records", async ()
   ]);
   assert.match(statements[1]?.text ?? "", /SET delivered_at = \$2/u);
   assert.match(statements[2]?.text ?? "", /SET next_attempt_at = \$2/u);
+  assert.match(statements[1]?.text ?? "", /AND attempts = \$3/u);
+  assert.match(statements[2]?.text ?? "", /AND attempts = \$3/u);
+  assert.deepEqual(statements[1]?.values, [
+    `customer-lead:received:${leadId}`,
+    "2026-09-16T16:01:00.000Z",
+    2,
+  ]);
+  assert.deepEqual(statements[2]?.values, [
+    `customer-lead:received:${leadId}`,
+    "2026-09-16T16:02:00.000Z",
+    2,
+  ]);
+});
+
+test("stale notification claims cannot change the current claimant's lease", async () => {
+  let attempts = 0;
+  let leaseActive = false;
+  let delivered = false;
+  let nextAttemptAt = submittedAt;
+  const pool = {
+    query: (text: string, values?: readonly unknown[]) => {
+      if (text.includes("WITH candidate AS")) {
+        attempts += 1;
+        leaseActive = true;
+        return Promise.resolve({ rows: [{
+          notification_id: `customer-lead:received:${leadId}`,
+          event: "RECEIVED",
+          lead_id: leadId,
+          occurred_at: submittedAt,
+          attempts,
+        }] });
+      }
+      if (text.includes("UPDATE customer_lead_notifications")) {
+        // Model PostgreSQL's atomic UPDATE predicate for the claim generation.
+        if (text.includes("AND attempts = $3") && values?.[2] === attempts && !delivered) {
+          leaseActive = false;
+          if (text.includes("SET delivered_at")) delivered = true;
+          else nextAttemptAt = String(values?.[1]);
+        }
+        return Promise.resolve({ rows: [] });
+      }
+      throw new Error("Unexpected query");
+    },
+  } as unknown as Pool;
+  const store = new PostgresCustomerLeadStore(pool);
+  const first = await store.claimNotification(submittedAt, "2026-09-16T16:00:30.000Z");
+  const second = await store.claimNotification("2026-09-16T16:00:31.000Z", "2026-09-16T16:01:01.000Z");
+  assert.equal(first?.attempts, 1);
+  assert.equal(second?.attempts, 2);
+
+  await store.retryNotification(`customer-lead:received:${leadId}`, "2026-09-16T17:00:00.000Z", first!.attempts);
+  await store.completeNotification(`customer-lead:received:${leadId}`, "2026-09-16T16:00:32.000Z", first!.attempts);
+  assert.equal(leaseActive, true);
+  assert.equal(delivered, false);
+  assert.equal(nextAttemptAt, submittedAt);
+
+  await store.completeNotification(`customer-lead:received:${leadId}`, "2026-09-16T16:00:33.000Z", second!.attempts);
+  assert.equal(delivered, true);
 });

@@ -519,28 +519,32 @@ implements CustomerLeadStore, CustomerLeadNotificationOutbox {
   async completeNotification(
     notificationIdValue: string,
     deliveredAt: string,
+    claimAttempt: number,
   ): Promise<void> {
     await this.pool.query(
       `UPDATE customer_lead_notifications
        SET delivered_at = $2,
            lease_expires_at = NULL
        WHERE notification_id = $1
-         AND delivered_at IS NULL`,
-      [notificationIdValue, deliveredAt],
+         AND delivered_at IS NULL
+         AND attempts = $3`,
+      [notificationIdValue, deliveredAt, claimAttempt],
     );
   }
 
   async retryNotification(
     notificationIdValue: string,
     nextAttemptAt: string,
+    claimAttempt: number,
   ): Promise<void> {
     await this.pool.query(
       `UPDATE customer_lead_notifications
        SET next_attempt_at = $2,
            lease_expires_at = NULL
        WHERE notification_id = $1
-         AND delivered_at IS NULL`,
-      [notificationIdValue, nextAttemptAt],
+         AND delivered_at IS NULL
+         AND attempts = $3`,
+      [notificationIdValue, nextAttemptAt, claimAttempt],
     );
   }
 
