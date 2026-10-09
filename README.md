@@ -4,6 +4,18 @@ CanaryGuard AI is an AI Release Intelligence Platform that evaluates whether a s
 
 The current MVP provides secure review, deployment-event, and management-reporting APIs, plus optional signed GitHub webhook ingestion, durable release-lifecycle persistence, and automated Check Run publishing, backed by deterministic evidence checks, selectable mock or OpenAI intelligence, and a hardcoded final policy engine.
 
+## Start here
+
+**Engineering focus:** software development, cybersecurity practices, DevSecOps, and AI-assisted release intelligence, demonstrated through evidence-backed release decisions, signed GitHub integrations, durable deployment history, and security-conscious API design.
+
+**Problem:** a successful build is only one part of release readiness. This project connects change evidence, policy decisions, and rollout observations under a traceable release identity.
+
+**Implementation:** TypeScript and Node.js APIs, PostgreSQL lifecycle persistence, Docker execution, and GitHub Actions integration. The default intelligence provider is `MOCK`; AI advice does not override deterministic policy.
+
+**Evidence and limits:** this README describes the implemented MVP and its opt-in integrations. Tests and workflows are in the repository. These are engineering demonstrations; no customer adoption or production performance improvement is claimed.
+
+[Local setup](#local-development) · [API contracts](#api-endpoints) · [Authentication](#authentication) · [Portfolio walkthrough](https://valerie-rwamba-munyi.vercel.app/#works)
+
 ## Current MVP status
 
 The default intelligence provider is `MOCK`.
