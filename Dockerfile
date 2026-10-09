@@ -32,7 +32,7 @@ RUN npm test
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM gcr.io/distroless/nodejs24-debian13@sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79 AS runtime
+FROM gcr.io/distroless/nodejs24-debian13@sha256:96df910f65fdd8a21d00d14d4cc046adcfcf3ced2d5e96be4b39ebde9f4866c6 AS runtime
 
 ARG APP_VERSION
 ARG COMMIT_SHA

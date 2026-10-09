@@ -30,7 +30,10 @@
     "esbuild@0.28.2": true
   },
   "overrides": {
-    "chromedriver": "152.0.3"
+    "chromedriver": "152.0.3",
+    "get-uri": {
+      "basic-ftp": "6.2.1"
+    }
   },
   "dependencies": {
     "openai": "^7.8.0",
