@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#07110f">
+    <meta name="theme-color" content="#101113">
     <meta name="robots" content="noindex,nofollow">
     <title>CanaryGuard Management Dashboard</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -19,7 +19,7 @@
         <span class="brand-mark" aria-hidden="true">CG</span>
         <span>
           <strong>CanaryGuard</strong>
-          <small>Release intelligence</small>
+          <small>Release management</small>
         </span>
       </a>
       <div class="environment-chip">
@@ -32,7 +32,7 @@
       <section class="hero" aria-labelledby="page-title">
         <div>
           <p class="eyebrow">Release control plane</p>
-          <h1 id="page-title">Decisions, evidence, and outcomes in one view.</h1>
+          <h1 id="page-title">Review release decisions and outcomes.</h1>
           <p class="hero-copy">
             Inspect the recorded release path from pull-request review through policy,
             deployment, and production outcome. Release evidence remains read-only.
@@ -42,8 +42,8 @@
         <div class="authority-card">
           <span class="authority-icon" aria-hidden="true">✓</span>
           <div>
-            <strong>Deterministic authority</strong>
-            <p>Model assessments explain risk. Hard-coded policy remains final.</p>
+            <strong>Policy decides the outcome</strong>
+            <p>AI assessments explain risk. Fixed policy rules determine the final decision.</p>
           </div>
         </div>
       </section>
@@ -51,7 +51,7 @@
       <section class="access-panel" aria-labelledby="access-title">
         <div class="section-heading compact">
           <div>
-            <p class="eyebrow">Protected reporting</p>
+            <p class="eyebrow">Repository access</p>
             <h2 id="access-title">Connect to a repository</h2>
           </div>
           <p class="security-note">The API key remains in this tab only and is never stored.</p>
@@ -76,7 +76,7 @@
         </form>
 
         <div id="connection-status" class="connection-status" role="status" aria-live="polite">
-          Enter the repository scope and service API key to begin.
+          Enter the repository and service API key to begin.
         </div>
       </section>
 
@@ -119,7 +119,7 @@
         <section class="release-section" aria-labelledby="release-history-title">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Chronological evidence</p>
+              <p class="eyebrow">Release records</p>
               <h2 id="release-history-title">Release history</h2>
             </div>
             <div class="filters" aria-label="Release filters">
@@ -143,7 +143,7 @@
 
           <div id="release-empty" class="empty-state" hidden>
             <strong>No releases match this view.</strong>
-            <p>Adjust the filters or load another repository scope.</p>
+            <p>Adjust the filters or load another repository.</p>
           </div>
           <div id="release-list" class="release-list" aria-live="polite"></div>
           <div class="pagination-row">
@@ -155,7 +155,7 @@
         <section id="release-detail" class="detail-panel" aria-labelledby="detail-title" hidden>
           <div class="detail-header">
             <div>
-              <p class="eyebrow">Bounded lifecycle report</p>
+              <p class="eyebrow">Release details</p>
               <h2 id="detail-title">Release evidence</h2>
               <p id="detail-subtitle" class="repository-label"></p>
             </div>
@@ -170,9 +170,9 @@
         <section id="lead-queue" class="detail-panel" aria-labelledby="lead-queue-title" hidden>
           <div class="detail-header">
             <div>
-              <p class="eyebrow">Administrator workflow</p>
+              <p class="eyebrow">Customer requests</p>
               <h2 id="lead-queue-title">Customer request queue</h2>
-              <p class="repository-label">Manually qualify bounded acquisition requests. Contracts and payments remain external.</p>
+              <p class="repository-label">Review and qualify customer requests. Contracts and payments remain external.</p>
             </div>
             <button id="close-leads" class="icon-button" type="button" aria-label="Close customer request queue">×</button>
           </div>
@@ -183,7 +183,7 @@
 
     <footer>
       <p>CanaryGuard records normalized evidence. Raw diffs, logs, prompts, credentials, and model output are excluded.</p>
-      <p>Release evidence is read-only · Lead status is ADMIN-only · No deployment execution</p>
+      <p>Release evidence is read-only · Only administrators can change lead status · No deployment execution</p>
       <p><a href="/licensing">Licensing</a> · © 2026 Valerie Rwamba Munyi. All rights reserved.</p>
     </footer>
   </body>

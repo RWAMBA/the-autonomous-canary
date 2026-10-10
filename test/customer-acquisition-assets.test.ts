@@ -20,7 +20,7 @@ test("serves a public acquisition page with roadmap services and safe boundaries
     "Compliance evidence package",
     "Managed release support",
     "Request a release-risk assessment",
-    "Request a managed deployment",
+    "Request GitHub App installation",
   ]) {
     assert.match(html, new RegExp(phrase, "u"));
   }

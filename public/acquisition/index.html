@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#08110f">
+    <meta name="theme-color" content="#101113">
     <meta name="description" content="CanaryGuard is release-governance software for GitHub teams, turning CI, security, and deployment evidence into deterministic decisions and auditable records.">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="CanaryGuard">
@@ -24,7 +24,7 @@
     <header class="site-header">
       <a class="brand" href="/" aria-label="CanaryGuard home">
         <span class="brand-mark" aria-hidden="true">CG</span>
-        <span><strong>CanaryGuard</strong><small>Release intelligence</small></span>
+        <span><strong>CanaryGuard</strong><small>Release governance</small></span>
       </a>
       <nav aria-label="Primary navigation">
         <a href="#services">Services</a>
@@ -43,11 +43,11 @@
           <p class="eyebrow">Evidence before deployment</p>
           <h1>Know the release risk.<br><span>Keep policy in control.</span></h1>
           <p class="lede">
-            CanaryGuard connects pull-request evidence, deterministic policy, and deployment outcomes so teams can ship with a decision trail—not a guess.
+            CanaryGuard checks pull-request evidence against release policy, reports the decision in GitHub, and records the deployment outcome.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#request" data-select-service="RELEASE_RISK_ASSESSMENT">Request a release-risk assessment</a>
-            <a class="button secondary" href="#request" data-select-service="MANAGED_DEPLOYMENT">Request a managed deployment</a>
+            <a class="button secondary" href="#request" data-select-service="MANAGED_DEPLOYMENT">Request GitHub App installation</a>
           </div>
           <ul class="trust-list" aria-label="Service boundaries">
             <li>No source archive uploads</li>
@@ -59,7 +59,7 @@
         <div class="decision-card" aria-label="Example CanaryGuard decision">
           <div class="decision-header">
             <span class="live-dot" aria-hidden="true"></span>
-            <span>Release review</span>
+            <span>Example release review</span>
             <code>PR #30</code>
           </div>
           <div class="risk-row">
@@ -69,28 +69,28 @@
           </div>
           <div class="signal-list">
             <div><span>✓</span><p><strong>CI evidence</strong><small>Workflow and container checks passed</small></p></div>
-            <div><span>✓</span><p><strong>Security evidence</strong><small>No blocking normalized findings</small></p></div>
-            <div><span>✓</span><p><strong>Policy authority</strong><small>All required controls satisfied</small></p></div>
+            <div><span>✓</span><p><strong>Security evidence</strong><small>No blocking security findings</small></p></div>
+            <div><span>✓</span><p><strong>Release policy</strong><small>All required controls satisfied</small></p></div>
           </div>
           <div class="decision-footer"><span>Final decision</span><strong>CONTINUE</strong></div>
         </div>
       </section>
 
       <section class="problem-band" aria-labelledby="problem-title">
-        <p class="eyebrow">The commercial problem</p>
-        <h2 id="problem-title">Release evidence exists. The decision is still fragmented.</h2>
+        <p class="eyebrow">Release review</p>
+        <h2 id="problem-title">Review release evidence in one place.</h2>
         <div class="problem-grid">
-          <p>CI failures arrive as noisy logs instead of a bounded diagnosis.</p>
-          <p>Security, accessibility, and deployment signals live in separate tools.</p>
-          <p>Approvals and overrides are difficult to reconstruct after the release.</p>
-          <p>Generic AI advice can blur the line between recommendation and authority.</p>
+          <p>Review CI failures without collecting raw logs.</p>
+          <p>Connect security, accessibility, and deployment findings to the same release.</p>
+          <p>Keep approvals and overrides with the release record.</p>
+          <p>Keep AI risk analysis advisory. Release policy determines the decision.</p>
         </div>
       </section>
 
       <section id="services" class="section services" aria-labelledby="services-title">
         <div class="section-heading">
-          <div><p class="eyebrow">Commercial engagements</p><h2 id="services-title">Start with the release problem you have now.</h2></div>
-          <p>Each engagement is manually scoped. Quotations, contracts, and payments use authorized external channels.</p>
+          <div><p class="eyebrow">Services</p><h2 id="services-title">Choose the release support you need.</h2></div>
+          <p>We agree the scope before work begins. Contracts and payments are handled separately.</p>
         </div>
         <div class="service-grid">
           <article><span>01</span><h3>Release-risk assessment</h3><p>Repository risk, CI failures, missing evidence, policy gaps, canary strategy, and a written audit report.</p><button type="button" data-select-service="RELEASE_RISK_ASSESSMENT">Select assessment</button></article>
@@ -104,24 +104,24 @@
 
       <section id="demo" class="section demo" aria-labelledby="demo-title">
         <div class="section-heading">
-          <div><p class="eyebrow">Product walkthrough</p><h2 id="demo-title">One release, one evidence trail.</h2></div>
-          <a href="/management" class="text-link">Open the live evidence dashboard →</a>
+          <div><p class="eyebrow">Product walkthrough</p><h2 id="demo-title">From pull request to deployment outcome.</h2></div>
+          <a href="/management" class="text-link">Open the evidence dashboard</a>
         </div>
         <ol class="flow-list">
-          <li><span>01</span><div><h3>Collect</h3><p>Bounded CI, security, accessibility, policy, and deployment evidence is correlated to the reviewed head.</p></div></li>
-          <li><span>02</span><div><h3>Assess</h3><p>Model intelligence explains risk while deterministic rules retain final authority.</p></div></li>
-          <li><span>03</span><div><h3>Deploy</h3><p>The chosen standard or canary strategy is observed against explicit health thresholds.</p></div></li>
-          <li><span>04</span><div><h3>Prove</h3><p>Review, policy decision, overrides, attempts, observations, and outcome remain exportable.</p></div></li>
+          <li><span>01</span><div><h3>Collect</h3><p>Connect CI, security, accessibility, and deployment evidence to the reviewed commit.</p></div></li>
+          <li><span>02</span><div><h3>Assess</h3><p>AI analysis explains risk. Deterministic rules make the release decision.</p></div></li>
+          <li><span>03</span><div><h3>Deploy</h3><p>Check the standard or canary deployment against defined health thresholds.</p></div></li>
+          <li><span>04</span><div><h3>Record</h3><p>Export the review, policy decision, overrides, deployment attempts, and outcome.</p></div></li>
         </ol>
         <div class="demo-lab" aria-labelledby="demo-lab-title">
           <div>
             <p class="eyebrow">Interactive decision demo</p>
-            <h3 id="demo-lab-title">Change the evidence. Observe policy authority.</h3>
+            <h3 id="demo-lab-title">See how evidence changes the decision.</h3>
             <div class="demo-controls" role="group" aria-label="Release evidence scenario">
-              <button type="button" data-demo-scenario="clean">Clean release</button>
-              <button type="button" data-demo-scenario="ci-failure">Failed tests</button>
-              <button type="button" data-demo-scenario="critical-secret">Critical secret</button>
-              <button type="button" data-demo-scenario="threshold-breach">Canary breach</button>
+              <button type="button" data-demo-scenario="clean" aria-pressed="true">Clean release</button>
+              <button type="button" data-demo-scenario="ci-failure" aria-pressed="false">Failed tests</button>
+              <button type="button" data-demo-scenario="critical-secret" aria-pressed="false">Critical secret</button>
+              <button type="button" data-demo-scenario="threshold-breach" aria-pressed="false">Canary breach</button>
             </div>
           </div>
           <div class="demo-result" aria-live="polite">
@@ -134,24 +134,25 @@
 
       <section id="request" class="section request" aria-labelledby="request-title">
         <div class="request-copy">
-          <p class="eyebrow">Start a conversation</p>
-          <h2 id="request-title">Describe the release outcome you need.</h2>
-          <p>Submissions are manually reviewed and qualified. A request does not create an account, contract, invoice, or payment obligation.</p>
+          <p class="eyebrow">Request an assessment</p>
+          <h2 id="request-title">Tell us about your release workflow.</h2>
+          <p>We review each request before proposing work. Submitting this form does not create an account or a payment obligation.</p>
           <div class="privacy-card">
-            <strong>Safe intake boundary</strong>
+            <strong>What to include</strong>
             <p>Do not submit source code, credentials, secrets, or production logs. We only need business contact details, an optional repository name, and a concise description of the release challenge.</p>
             <small>Each lead receives a 180-day retention deadline unless an engagement begins or law requires otherwise.</small>
           </div>
         </div>
 
         <form id="lead-form" class="lead-form" novalidate>
+          <div id="form-errors" class="error-summary" tabindex="-1" hidden></div>
           <div class="field-pair">
-            <label><span>Name</span><input name="contactName" required minlength="2" maxlength="120" autocomplete="name"></label>
-            <label><span>Work email</span><input name="workEmail" type="email" required maxlength="254" autocomplete="email"></label>
+            <label><span>Name (required)</span><input name="contactName" required minlength="2" maxlength="120" autocomplete="name"></label>
+            <label><span>Work email (required)</span><input name="workEmail" type="email" required maxlength="254" autocomplete="email"></label>
           </div>
-          <label><span>Organization</span><input name="organizationName" required minlength="2" maxlength="200" autocomplete="organization"></label>
+          <label><span>Organization (required)</span><input name="organizationName" required minlength="2" maxlength="200" autocomplete="organization"></label>
           <label>
-            <span>Service</span>
+            <span>Service (required)</span>
             <select name="service" required>
               <option value="">Select a service</option>
               <option value="RELEASE_RISK_ASSESSMENT">Release-risk assessment</option>
@@ -170,7 +171,7 @@
             </div>
             <p class="field-note">Use the exact GitHub owner and repository name. Spaces are not permitted; leave both fields blank if no repository applies.</p>
           </fieldset>
-          <label><span>Release challenge</span><textarea name="challenge" required minlength="20" maxlength="2000" rows="6" placeholder="What is preventing a confident release decision?"></textarea><small class="field-note">No source, secrets, credentials, or raw logs.</small></label>
+          <label><span>Release challenge (required)</span><textarea name="challenge" required minlength="20" maxlength="2000" rows="6" placeholder="What is preventing a confident release decision?"></textarea><small class="field-note">No source, secrets, credentials, or raw logs.</small></label>
           <label class="honeypot" aria-hidden="true"><span>Website</span><input name="website" tabindex="-1" autocomplete="off"></label>
           <label class="consent"><input name="consent" type="checkbox" required><span>I agree that CanaryGuard may use these details to assess and respond to this request.</span></label>
           <button class="button primary submit" type="submit">Submit request</button>
