@@ -9,6 +9,7 @@
   const demoExplanation = document.querySelector("#demo-explanation");
   const repositoryOwnerInput = form?.elements.namedItem("repositoryOwner");
   const repositoryNameInput = form?.elements.namedItem("repositoryName");
+  const errorSummary = document.querySelector("#form-errors");
   let pendingSubmission;
   const repositoryFormatMessage =
     "Repository owner and name must use exact GitHub format: letters, numbers, periods, underscores, or hyphens—no spaces.";
@@ -24,6 +25,14 @@
       const selected = selector.getAttribute("data-select-service");
       if (selected !== null) {
         service.value = selected;
+        if (selector instanceof HTMLButtonElement) {
+          service.focus({ preventScroll: true });
+          service.scrollIntoView({
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+              ? "auto" : "smooth",
+            block: "center",
+          });
+        }
       }
     });
   }
@@ -62,6 +71,9 @@
       control.addEventListener("click", () => {
         const scenario = demoScenarios[control.getAttribute("data-demo-scenario")];
         if (scenario === undefined) return;
+        for (const button of document.querySelectorAll("[data-demo-scenario]")) {
+          button.setAttribute("aria-pressed", String(button === control));
+        }
         demoRisk.textContent = scenario.risk;
         demoDecision.textContent = scenario.decision;
         demoExplanation.textContent = scenario.explanation;
@@ -79,10 +91,76 @@
     return value === "" ? undefined : value;
   }
 
+  const fieldNames = {
+    contactName: "Name",
+    workEmail: "Work email",
+    organizationName: "Organization",
+    service: "Service",
+    repositoryOwner: "Repository owner",
+    repositoryName: "Repository name",
+    challenge: "Release challenge",
+    consent: "Consent",
+  };
+
+  function clearFieldErrors() {
+    for (const field of form.querySelectorAll("[aria-invalid]")) {
+      field.removeAttribute("aria-invalid");
+      const errorId = `${field.id}-error`;
+      const descriptions = (field.getAttribute("aria-describedby") ?? "")
+        .split(" ").filter((id) => id !== "" && id !== errorId);
+      if (descriptions.length > 0) {
+        field.setAttribute("aria-describedby", descriptions.join(" "));
+      } else {
+        field.removeAttribute("aria-describedby");
+      }
+      document.getElementById(errorId)?.remove();
+    }
+    if (errorSummary instanceof HTMLElement) {
+      errorSummary.replaceChildren();
+      errorSummary.hidden = true;
+    }
+  }
+
+  function showFieldErrors(errors) {
+    const list = document.createElement("ul");
+    for (const { field, message } of errors) {
+      if (!field.id) field.id = `lead-${field.name}`;
+      const errorId = `${field.id}-error`;
+      field.setAttribute("aria-invalid", "true");
+      const descriptions = field.getAttribute("aria-describedby");
+      field.setAttribute("aria-describedby", [descriptions, errorId].filter(Boolean).join(" "));
+      const note = document.createElement("small");
+      note.id = errorId;
+      note.className = "field-error";
+      note.textContent = message;
+      field.closest("label")?.append(note);
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `#${field.id}`;
+      link.textContent = `${fieldNames[field.name]}: ${message}`;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        field.focus();
+      });
+      item.append(link);
+      list.append(item);
+    }
+    if (errorSummary instanceof HTMLElement) {
+      const heading = document.createElement("p");
+      heading.textContent = "Review these fields before submitting:";
+      errorSummary.replaceChildren(heading, list);
+      errorSummary.hidden = false;
+      errorSummary.focus();
+    } else {
+      errors[0]?.field.focus();
+    }
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    if (!form.reportValidity()) {
+    clearFieldErrors();
+    if (!form.checkValidity()) {
       const repositoryFormatInvalid =
         (repositoryOwnerInput instanceof HTMLInputElement
           && repositoryOwnerInput.validity.patternMismatch)
@@ -95,6 +173,18 @@
           : "Complete the required fields before submitting.",
         true,
       );
+      const errors = [];
+      for (const name of Object.keys(fieldNames)) {
+        const field = form.elements.namedItem(name);
+        if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement
+          || field instanceof HTMLTextAreaElement) {
+          if (!field.validity.valid) {
+            errors.push({ field, message: field.validity.patternMismatch
+              ? repositoryFormatMessage : field.validationMessage });
+          }
+        }
+      }
+      showFieldErrors(errors);
       return;
     }
 
@@ -105,6 +195,10 @@
 
     if ((repositoryOwner === undefined) !== (repositoryName === undefined)) {
       setStatus("Provide both repository owner and repository name, or leave both blank.", true);
+      const field = repositoryOwner === undefined ? repositoryOwnerInput : repositoryNameInput;
+      if (field instanceof HTMLInputElement) {
+        showFieldErrors([{ field, message: "Provide both repository owner and repository name, or leave both blank." }]);
+      }
       return;
     }
 
@@ -136,6 +230,7 @@
 
     if (submitButton instanceof HTMLButtonElement) {
       submitButton.disabled = true;
+      submitButton.textContent = "Submitting request…";
     }
     setStatus("Submitting your request…");
 
@@ -183,6 +278,7 @@
       window.clearTimeout(timeout);
       if (submitButton instanceof HTMLButtonElement) {
         submitButton.disabled = false;
+        submitButton.textContent = "Submit request";
       }
     }
   });

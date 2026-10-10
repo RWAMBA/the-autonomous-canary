@@ -4,12 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#08110f">
-    <meta name="description" content="CanaryGuard release intelligence and customer-acquisition architecture.">
+    <meta name="theme-color" content="#101113">
+    <meta name="description" content="How CanaryGuard collects release evidence, applies policy, and records deployment outcomes.">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="CanaryGuard">
     <meta property="og:title" content="Architecture — CanaryGuard">
-    <meta property="og:description" content="CanaryGuard release intelligence and customer-acquisition architecture.">
+    <meta property="og:description" content="How CanaryGuard collects release evidence, applies policy, and records deployment outcomes.">
     <meta property="og:url" content="https://canaryguard.nextedgeanalytics.com/architecture">
     <meta name="twitter:card" content="summary">
     <title>Architecture — CanaryGuard</title>
@@ -20,23 +20,23 @@
   <body>
     <a class="skip-link" href="#main">Skip to main content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="CanaryGuard home"><span class="brand-mark" aria-hidden="true">CG</span><span><strong>CanaryGuard</strong><small>Release intelligence</small></span></a>
+      <a class="brand" href="/" aria-label="CanaryGuard home"><span class="brand-mark" aria-hidden="true">CG</span><span><strong>CanaryGuard</strong><small>Release governance</small></span></a>
       <nav aria-label="Primary navigation"><a href="/">Home</a><a href="/security">Security</a><a href="/case-study">Case study</a><a href="/licensing">Licensing</a><a class="nav-cta" href="/#request">Request assessment</a></nav>
     </header>
     <main id="main">
       <section class="section problem-band">
         <p class="eyebrow">System design</p>
         <h1>CanaryGuard architecture</h1>
-        <p class="lede">GitHub evidence enters through verified webhooks and bounded API collection. Deterministic policy owns the release decision; model intelligence remains advisory. PostgreSQL retains normalized lifecycle, authorization, evidence attribution, deployment outcomes, and qualified acquisition records.</p>
+        <p class="lede">CanaryGuard collects GitHub evidence through verified webhooks and limited API requests. Deterministic policy makes the release decision; AI analysis is advisory. PostgreSQL stores release records, access permissions, evidence, deployment outcomes, and customer requests.</p>
       </section>
       <section class="section demo" aria-labelledby="path-title">
-        <div class="section-heading"><div><p class="eyebrow">Release path</p><h2 id="path-title">Authority and data remain separated.</h2></div></div>
+        <div class="section-heading"><div><p class="eyebrow">Release path</p><h2 id="path-title">How a release is reviewed and recorded.</h2></div></div>
         <ol class="flow-list">
-          <li><span>01</span><div><h3>Verified input</h3><p>GitHub App signatures, exact head correlation, tenant grants, and bounded DTOs establish trusted identity.</p></div></li>
+          <li><span>01</span><div><h3>Verified input</h3><p>Webhook signatures, commit matching, repository grants, and input validation identify the request and its release.</p></div></li>
           <li><span>02</span><div><h3>Normalized evidence</h3><p>CI, vulnerability, secret, accessibility, exposure, and agent-policy adapters emit limited versioned facts.</p></div></li>
           <li><span>03</span><div><h3>Deterministic policy</h3><p>Hard-coded controls select BLOCK, CANARY, or CONTINUE after advisory risk analysis.</p></div></li>
           <li><span>04</span><div><h3>Observed outcome</h3><p>Deployment attempts, traffic observations, promotion or rollback, and prediction accuracy share one release identity.</p></div></li>
-          <li><span>05</span><div><h3>Acquisition boundary</h3><p>The public form creates a bounded lead; platform-operator qualification, external commerce, and manual tenant provisioning follow.</p></div></li>
+          <li><span>05</span><div><h3>Customer requests</h3><p>The public form creates a customer request. An administrator reviews it before any contract, payment, or tenant setup.</p></div></li>
         </ol>
       </section>
     </main>

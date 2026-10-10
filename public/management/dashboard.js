@@ -739,7 +739,7 @@
     );
     elements.detailContent.replaceChildren(grid);
     elements.detail.hidden = false;
-    elements.detail.scrollIntoView({ behavior: "smooth", block: "start" });
+    elements.detail.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
   async function loadReleaseDetail(releaseId) {

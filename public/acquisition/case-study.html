@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#08110f">
+    <meta name="theme-color" content="#101113">
     <meta name="description" content="CanaryGuard case study: deterministic release authority from verified pull-request evidence to observed deployment outcome.">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="CanaryGuard">
@@ -20,12 +20,12 @@
   <body>
     <a class="skip-link" href="#main">Skip to main content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="CanaryGuard home"><span class="brand-mark" aria-hidden="true">CG</span><span><strong>CanaryGuard</strong><small>Release intelligence</small></span></a>
+      <a class="brand" href="/" aria-label="CanaryGuard home"><span class="brand-mark" aria-hidden="true">CG</span><span><strong>CanaryGuard</strong><small>Release governance</small></span></a>
       <nav aria-label="Primary navigation"><a href="/">Home</a><a href="/security">Security</a><a href="/architecture">Architecture</a><a href="/licensing">Licensing</a><a class="nav-cta" href="/management">Live dashboard</a></nav>
     </header>
     <main id="main">
       <section class="section problem-band">
-        <p class="eyebrow">Phase 9 · Portfolio case study</p>
+        <p class="eyebrow">Engineering case study</p>
         <h1>CanaryGuard case study</h1>
         <p class="lede">A release-governance system that correlates a verified pull request, bounded CI and security evidence, a structured GitHub Check Run, deterministic policy, deployment observations, and the final outcome under one release identity.</p>
         <div class="case-metrics" aria-label="Case-study evidence summary">
@@ -37,7 +37,7 @@
       </section>
 
       <section class="section services" aria-labelledby="problem-title">
-        <div class="section-heading"><div><p class="eyebrow">Problem statement</p><h2 id="problem-title">Release evidence was fragmented; authority was ambiguous.</h2></div><p>CanaryGuard normalizes evidence without ingesting raw logs, keeps model analysis advisory, and makes deterministic policy the final authority.</p></div>
+        <div class="section-heading"><div><p class="eyebrow">Problem statement</p><h2 id="problem-title">The release review and decision process.</h2></div><p>CanaryGuard normalizes evidence without ingesting raw logs, keeps model analysis advisory, and makes deterministic policy the final authority.</p></div>
         <div class="service-grid">
           <article><span>01</span><h3>Verified intake</h3><p>Signed GitHub webhooks, replay protection, exact repository grants, and head-SHA correlation establish identity.</p></article>
           <article><span>02</span><h3>Bounded evidence</h3><p>CI, vulnerability, secret, accessibility, exposure, and agent-policy facts are normalized with strict size limits.</p></article>
@@ -49,23 +49,24 @@
       </section>
 
       <section class="section demo" aria-labelledby="evidence-title">
-        <div class="section-heading"><div><p class="eyebrow">Evidence, not claims</p><h2 id="evidence-title">Implementation and production proof are labeled separately.</h2></div></div>
+        <div class="section-heading"><div><p class="eyebrow">Validation results</p><h2 id="evidence-title">Production checks and automated tests.</h2></div></div>
         <table class="evidence-table">
+          <caption>Recorded policy results and their validation method</caption>
           <thead><tr><th>Scenario</th><th>Policy result</th><th>Evidence status</th></tr></thead>
           <tbody>
-            <tr><td>Safe pull request with complete passing evidence</td><td>CONTINUE · STANDARD · 100%</td><td class="status-verified">Production-validated</td></tr>
-            <tr><td>Failed CI workflow</td><td>BLOCK · BLOCKED · 0%</td><td class="status-verified">Production-validated</td></tr>
-            <tr><td>Healthy canary observation</td><td>CONTINUE observation</td><td class="status-simulated">Deterministically tested</td></tr>
-            <tr><td>Threshold breach</td><td>ROLLBACK</td><td class="status-simulated">Deterministically tested</td></tr>
-            <tr><td>Second-organization isolation</td><td>Cross-tenant access concealed with HTTP 403</td><td class="status-verified">Production-validated</td></tr>
+            <tr><td data-label="Scenario">Safe pull request with complete passing evidence</td><td data-label="Policy result">CONTINUE · STANDARD · 100%</td><td class="status-verified" data-label="Evidence status">Production-validated</td></tr>
+            <tr><td data-label="Scenario">Failed CI workflow</td><td data-label="Policy result">BLOCK · BLOCKED · 0%</td><td class="status-verified" data-label="Evidence status">Production-validated</td></tr>
+            <tr><td data-label="Scenario">Healthy canary observation</td><td data-label="Policy result">CONTINUE observation</td><td class="status-simulated" data-label="Evidence status">Deterministically tested</td></tr>
+            <tr><td data-label="Scenario">Threshold breach</td><td data-label="Policy result">ROLLBACK</td><td class="status-simulated" data-label="Evidence status">Deterministically tested</td></tr>
+            <tr><td data-label="Scenario">Second-organization isolation</td><td data-label="Policy result">Cross-tenant access concealed with HTTP 403</td><td class="status-verified" data-label="Evidence status">Production-validated</td></tr>
           </tbody>
         </table>
       </section>
 
       <section class="section request" aria-labelledby="demo-title">
-        <div class="request-copy"><p class="eyebrow">Live demonstration</p><h2 id="demo-title">Inspect the public proof surface.</h2><p>The dashboard shell is public, while release data requires an authorized tenant credential. The repository case-study package contains the threat model, demo script, policy table, examples, evaluation, recovery procedures, completion ledger, and Known limitations.</p></div>
+        <div class="request-copy"><p class="eyebrow">Live demonstration</p><h2 id="demo-title">Inspect the release evidence.</h2><p>The dashboard shell is public, while release data requires an authorized tenant credential. The repository case-study package contains the threat model, demo script, policy table, examples, evaluation, recovery procedures, completion ledger, and Known limitations.</p></div>
         <div class="privacy-card">
-          <strong>Safe demonstration boundary</strong>
+          <strong>Using the dashboard safely</strong>
           <p>No key belongs in a URL, screenshot, recording, source file, or browser storage. Use a temporary terminal environment for authenticated API calls and unset it afterward.</p>
           <div class="case-actions"><a class="button primary" href="/management">Open live dashboard</a><a class="button secondary" href="/#demo">Run decision demo</a><a class="button secondary" href="https://github.com/RWAMBA/the-autonomous-canary/tree/main/docs/case-study">Inspect full evidence package</a></div>
         </div>
