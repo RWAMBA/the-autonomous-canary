@@ -33,7 +33,7 @@ button, .button { min-height: 44px; min-width: 44px; max-width: 100%; white-spac
 nav { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1rem; }
 nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: .4rem .25rem; color: var(--muted); text-decoration: none; font-size: .875rem; }
 nav a:hover, nav a:focus-visible { color: var(--ink); }
-.nav-cta { padding: .65rem 1rem; color: #17120b; border-radius: .4rem; background: var(--accent); font-weight: 700; text-align: center; }
+.nav-cta { text-align: center; }
 
 .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .85fr); gap: clamp(2rem, 5vw, 5rem); align-items: center; min-height: min(780px, calc(100svh - 88px)); width: min(1280px, 100%); margin-inline: auto; padding: clamp(3rem, 7vw, 6rem) clamp(1rem, 4vw, 4rem); }
 .eyebrow { margin: 0 0 1rem; color: var(--muted); font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
@@ -43,9 +43,18 @@ h1 span { color: var(--ink); }
 .lede { max-width: 680px; color: var(--muted); font-size: clamp(1.05rem, 1.6vw, 1.3rem); }
 .hero-actions { display: flex; flex-wrap: wrap; gap: .8rem; margin: 2rem 0; }
 .button { display: inline-flex; align-items: center; justify-content: center; padding: .8rem 1.15rem; border: 1px solid transparent; border-radius: .5rem; text-decoration: none; cursor: pointer; font-weight: 750; }
-.button.primary { color: #17120b; background: var(--accent); }
-.button.primary:hover { background: #ffce8b; }
-.button.secondary { border-color: var(--line); background: var(--surface); }
+.button.primary.submit { color: #17120b; background: var(--accent); }
+.button.primary.submit:hover { background: #ffce8b; }
+/* Request actions and demo controls share the GitHub installation style. */
+.button.secondary, .button.primary:not(.submit), .nav-cta, .demo-controls button {
+  padding: .8rem 1.15rem;
+  border: 1px solid var(--control-line);
+  border-radius: .5rem;
+  color: var(--ink);
+  background: var(--surface);
+  font-weight: 750;
+  cursor: pointer;
+}
 .trust-list { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; padding: 0; color: var(--muted); list-style: none; font-size: .83rem; }
 .trust-list li::before { content: "✓"; margin-right: .45rem; color: var(--accent); }
 
@@ -148,20 +157,6 @@ footer p { margin: 0; }
   margin-top: 1rem;
 }
 
-.demo-controls button {
-  border: 1px solid var(--line);
-  border-radius: .4rem;
-  background: var(--raised);
-  color: var(--ink);
-  padding: 0.65rem 0.9rem;
-  cursor: pointer;
-}
-
-.demo-controls button:hover,
-.demo-controls button:focus-visible {
-  border-color: var(--accent);
-}
-
 .demo-result { padding: 1.25rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--canvas); }
 
 .demo-result span,
@@ -220,14 +215,14 @@ button, a, input, select, textarea { scroll-margin-block: 7rem; }
 button, .button, nav a { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
 button:disabled { cursor: wait; opacity: .6; }
 .button { text-align: center; }
-.button.secondary { border-color: var(--control-line); }
-.button.secondary:hover, .service-grid button:hover { background: var(--raised); border-color: var(--muted); }
-nav .nav-cta:hover, nav .nav-cta:focus-visible { color: #17120b; background: #ffce8b; }
+.button.secondary:hover, .button.primary:not(.submit):hover, .nav-cta:hover, .demo-controls button:hover, .service-grid button:hover { background: var(--raised); border-color: var(--muted); }
+nav .nav-cta:focus-visible { color: var(--ink); }
 nav a[aria-current="page"] { color: var(--ink); text-decoration: underline; text-underline-offset: .3em; }
 .privacy-card strong { display: block; margin-bottom: .5rem; }
 .field-note, .form-status, .case-metrics span, footer p { font-size: .875rem; }
 .footer-links a { display: inline-flex; align-items: center; min-height: 44px; }
-.demo-controls button[aria-pressed="true"] { border-color: var(--accent); color: #17120b; background: var(--accent); }
+.demo-controls button[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: -4px; }
+.demo-controls button:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 .lead-form [aria-invalid="true"] { border-color: var(--danger); }
 .field-error { color: var(--danger); font-size: .875rem; }
 .error-summary { padding: 1rem; border: 1px solid var(--danger); border-radius: .4rem; }
