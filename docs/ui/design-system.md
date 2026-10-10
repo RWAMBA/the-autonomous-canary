@@ -40,6 +40,14 @@ Use a 4px spacing base, with 8, 12, 16, 24, 32 and 48px common intervals. Keep p
 content within 1280px, fluid side padding, and clear section boundaries. Long SHAs,
 repository names, email addresses and report values must wrap inside their parent.
 
+## Homepage hierarchy
+
+The hero headline uses a smaller fluid size so each sentence fits on one line at
+standard desktop widths. Text may wrap on narrow screens or with enlarged text;
+do not force nowrap or fixed heights. The release-risk assessment is the first,
+larger action. Installation remains a smaller outlined alternative. Both retain
+white text, gray borders and neutral surfaces; Submit request retains amber.
+
 ## Responsive behavior and interaction
 
 - Keep every navigation destination reachable at narrow widths. The navigation

@@ -41,7 +41,11 @@ h1, h2, h3, p { margin-top: 0; }
 h1 { max-width: 900px; margin-bottom: 1.5rem; font-size: clamp(2.375rem, 5.3vw, 5rem); font-weight: 650; line-height: 1.08; letter-spacing: -.045em; }
 h1 span { color: var(--ink); }
 .lede { max-width: 680px; color: var(--muted); font-size: clamp(1.05rem, 1.6vw, 1.3rem); }
-.hero-actions { display: flex; flex-wrap: wrap; gap: .8rem; margin: 2rem 0; }
+/* Keep the two headline sentences compact without forcing unbreakable text. */
+.hero h1 { font-size: clamp(2rem, 3.7vw, 3.125rem); text-wrap: wrap; }
+.hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem; margin: 2rem 0; }
+.hero .hero-actions .button.primary { min-height: 52px; padding: .9rem 1.25rem; }
+.hero .hero-actions .button.secondary { min-height: 44px; padding: .65rem 1rem; font-weight: 650; }
 .button { display: inline-flex; align-items: center; justify-content: center; padding: .8rem 1.15rem; border: 1px solid transparent; border-radius: .5rem; text-decoration: none; cursor: pointer; font-weight: 750; }
 .button.primary.submit { color: #17120b; background: var(--accent); }
 .button.primary.submit:hover { background: #ffce8b; }
