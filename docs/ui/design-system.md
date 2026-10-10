@@ -15,10 +15,15 @@ charcoal, white, and amber palette taking precedence over generic catalog palett
 | Secondary text | `#b5bac3` | Supporting copy |
 | Divider | `#373b43` | Decorative separators |
 | Control boundary | `#767d89` | Editable inputs and outlined controls |
-| Accent | `#f2bd72` | Primary actions, selection and keyboard focus |
+| Accent | `#f2bd72` | Form submit action, evidence accents and keyboard focus |
 | Accent foreground | `#17120b` | Text on amber buttons |
 | Success | `#90c9a4` | Verified or successful evidence only |
 | Error | `#ffaaaa` | Error text |
+
+Request actions and demo controls use white text, a gray control border and a
+neutral surface, matching the GitHub App installation button. Only Submit request
+uses an amber button fill. The selected demo control has a white inset outline
+and retains its `aria-pressed` state.
 
 Both lines of the homepage headline are white. Green is reserved for status, and
 status always has a text label. Use neutral surfaces without gradients, glows, or
