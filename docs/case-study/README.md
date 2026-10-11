@@ -28,7 +28,7 @@ The implemented path is:
 - **Fully complete**: every Phase 9 artifact is merged, deployed, and its public route is verified at the deployed revision.
 - **Insufficient data to verify**: no evidence supports a stronger statement.
 
-Phase 1–8 behavior is production-validated at revision [`ca405ed560f7d0df2f5c17c28a04b7df5e4eaf5e`](https://github.com/RWAMBA/the-autonomous-canary/commit/ca405ed560f7d0df2f5c17c28a04b7df5e4eaf5e). This Phase 9 publication package is implemented on its feature branch; it is not fully complete until review, merge, deployment, and public `/case-study` verification occur.
+Phase 1–8 behavior is production-validated at revision [`ca405ed560f7d0df2f5c17c28a04b7df5e4eaf5e`](https://github.com/RWAMBA/the-autonomous-canary/commit/ca405ed560f7d0df2f5c17c28a04b7df5e4eaf5e). The publication package is present at the deployed baseline `92ae5ea66cbc04bdc4b561b077252a46bca8fb79`; the public case-study route was reviewed at that baseline. The client-readiness follow-up must pass its own review, CI, merge, deployment, and public-route verification gates. Historical capability validation and current implementation are distinguished in the evidence ledger.
 
 ## Case-study contents
 

@@ -29,8 +29,8 @@
         <h1>CanaryGuard case study</h1>
         <p class="lede">A release-governance system that correlates a verified pull request, bounded CI and security evidence, a structured GitHub Check Run, deterministic policy, deployment observations, and the final outcome under one release identity.</p>
         <div class="case-metrics" aria-label="Case-study evidence summary">
-          <article><strong>509</strong><span>automated tests at the Phase 8 production baseline</span></article>
-          <article><strong>10/10</strong><span>definition-of-complete capabilities evidenced</span></article>
+          <article><strong>534</strong><span>automated tests passed locally for this client-readiness update</span></article>
+          <article><strong>10 areas</strong><span>mapped to evidence; validation status is stated per capability</span></article>
           <article><strong>100%</strong><span>standard traffic selected for the validated low-risk release</span></article>
           <article><strong>0 secrets</strong><span>required by public CI; intelligence uses MOCK</span></article>
         </div>
@@ -58,9 +58,10 @@
             <tr><td data-label="Scenario">Failed CI workflow</td><td data-label="Policy result">BLOCK · BLOCKED · 0%</td><td class="status-verified" data-label="Evidence status">Production-validated</td></tr>
             <tr><td data-label="Scenario">Healthy canary observation</td><td data-label="Policy result">CONTINUE observation</td><td class="status-simulated" data-label="Evidence status">Deterministically tested</td></tr>
             <tr><td data-label="Scenario">Threshold breach</td><td data-label="Policy result">ROLLBACK</td><td class="status-simulated" data-label="Evidence status">Deterministically tested</td></tr>
-            <tr><td data-label="Scenario">Second-organization isolation</td><td data-label="Policy result">Cross-tenant access concealed with HTTP 403</td><td class="status-verified" data-label="Evidence status">Production-validated</td></tr>
+            <tr><td data-label="Scenario">Second-organization isolation</td><td data-label="Policy result">Historical secondary-tenant request rejected with HTTP 403</td><td class="status-verified" data-label="Evidence status">Production-validated</td></tr>
           </tbody>
         </table>
+        <p class="sample-notice">Test counts describe a specific revision, not a coverage percentage. This update passed 534 tests locally; its CI and deployment are verified separately. Phase 8 recorded 509 tests; the deployed baseline <code>92ae5ea66cbc</code> passed 531. The current authorization contract returns HTTP 403 for denied role permissions and HTTP 404 for an ungranted repository or release. The historical 403 observation above records rejection, not proof of the current resource-concealment response.</p>
       </section>
 
       <section class="section request" aria-labelledby="demo-title">
@@ -68,7 +69,7 @@
         <div class="privacy-card">
           <strong>Using the dashboard safely</strong>
           <p>No key belongs in a URL, screenshot, recording, source file, or browser storage. Use a temporary terminal environment for authenticated API calls and unset it afterward.</p>
-          <div class="case-actions"><a class="button primary" href="/management">Open live dashboard</a><a class="button secondary" href="/#demo">Run decision demo</a><a class="button secondary" href="https://github.com/RWAMBA/the-autonomous-canary/tree/main/docs/case-study">Inspect full evidence package</a></div>
+          <div class="case-actions"><a class="button primary" href="/examples#sample-dashboard">Preview sample evidence</a><a class="button secondary" href="/management">Open live dashboard</a><a class="button secondary" href="/#demo">Run decision demo</a><a class="button secondary" href="https://github.com/RWAMBA/the-autonomous-canary/tree/main/docs/case-study">Inspect full evidence package</a></div>
         </div>
       </section>
     </main>

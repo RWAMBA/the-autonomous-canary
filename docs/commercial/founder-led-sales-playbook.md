@@ -13,12 +13,12 @@ Disqualify hobby projects, organizations without commercial releases, teams that
 ## Offer ladder
 
 1. Release-workflow review: 20 minutes, no fee.
-2. Release-readiness assessment: USD 350, one repository, written gap analysis, no managed installation.
-3. Founding release-governance pilot: USD 750, 14 days, one repository.
-4. Post-validation implementation: test USD 1,500 to USD 3,000 based on written scope.
-5. Managed support: test USD 400 to USD 1,000 per repository per month after value and support load are measured.
+2. Release-readiness assessment: one repository, written gap analysis, no managed installation.
+3. Founding release-governance pilot: 14 days, one repository.
+4. Post-validation implementation: written scope and acceptance criteria.
+5. Managed support: agreed repository limits, included hours, and recurring deliverables.
 
-Prices after the pilot are experiments, not validated market rates. Quote only after discovery.
+Pricing is negotiated with each prospective client. Quote only after discovery and record the fee, currency, payment schedule, and applicable taxes in the signed order details. No fixed price is advertised.
 
 ## Account scoring
 

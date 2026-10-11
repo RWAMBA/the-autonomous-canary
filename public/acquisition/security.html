@@ -40,6 +40,18 @@
           <article><span>06</span><h3>Recovery</h3><p>Provider settings, database migrations, rollback procedures, and revision health checks support deployment recovery.</p></article>
         </div>
       </section>
+      <section id="privacy" class="section services" aria-labelledby="privacy-title">
+        <div class="section-heading"><div><p class="eyebrow">Privacy and provider processing</p><h2 id="privacy-title">Understand where information goes.</h2></div></div>
+        <div class="service-grid">
+          <article><span>01</span><h3>Responsible operator</h3><p>Valerie Rwamba Munyi trading as NextEdge Analytics operates CanaryGuard. Business contact details and the release challenge are used to assess and respond to the request. Only authorized operators can manage customer requests.</p></article>
+          <article><span>02</span><h3>Privacy requests</h3><p>Use the <a class="text-link" href="/#request">request form</a> to identify a correction or deletion request with minimal business contact details. An operator verifies the request before acting. Do not submit identity documents, credentials, or additional sensitive data.</p></article>
+          <article><span>03</span><h3>Retention and deletion</h3><p>Lead records receive a 180-day retention deadline. Deletion or a lawful extension requires operator action; the deadline does not promise automatic deletion. Engagement-specific release-data retention, backup treatment, and offboarding are agreed before work begins.</p></article>
+          <article><span>04</span><h3>Hosting and GitHub</h3><p>The public service is hosted on Render and uses PostgreSQL when persistence is enabled. Authorized GitHub App integrations collect bounded repository evidence. The engagement must identify the actual hosting, database, access, and data-location arrangements.</p></article>
+          <article><span>05</span><h3>Notification providers</h3><p>The configured notification path uses a Cloudflare Worker and Resend. It receives the configured operator recipient, fixed subject, request reference, event time, and idempotency key. Customer contact details and challenge text are excluded from that relay payload.</p></article>
+          <article><span>06</span><h3>Optional OpenAI analysis</h3><p>MOCK is the default and makes no external model call. Enabling OpenAI sends the sanitized review request, which can include bounded change and diff content, for analysis. Customer authorization and provider terms must be agreed first. Requests use <code>store: false</code>; this does not guarantee zero provider retention. CanaryGuard telemetry excludes prompts, raw diffs, credentials, and raw model output.</p></article>
+        </div>
+        <p class="sample-notice">The public form is for bounded business inquiries. Customer processing instructions, confidentiality, permitted providers, and any required data-processing agreement are finalized before integration. Evidence preparation does not establish regulatory compliance.</p>
+      </section>
     </main>
     <footer><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">CG</span><strong>CanaryGuard</strong></a><p>© 2026 Valerie Rwamba Munyi. All rights reserved.</p><div class="footer-links"><a href="/licensing">Licensing</a><a href="/case-study">Case study</a></div></footer>
   </body>

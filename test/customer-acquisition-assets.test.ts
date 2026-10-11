@@ -150,6 +150,7 @@ test("publishes canonical search-discovery assets for the custom domain", () => 
     ["/architecture", "/architecture"],
     ["/case-study", "/case-study"],
     ["/licensing", "/licensing"],
+    ["/examples", "/examples"],
   ] as const;
 
   for (const [pathname, canonicalPath] of publicRoutes) {
@@ -185,4 +186,39 @@ test("publishes canonical search-discovery assets for the custom domain", () => 
     assert.match(sitemapXml, new RegExp(`<loc>${origin}${canonicalPath}</loc>`, "u"));
   }
   assert.doesNotMatch(sitemapXml, /\/management|\/health|\/version|\/customer-leads/u);
+});
+
+test("serves credential-free illustrative deliverables separately from protected records", () => {
+  const asset = getCustomerAcquisitionAsset("/examples");
+  assert.equal(asset?.contentType, "text/html; charset=utf-8");
+  const html = asset?.body.toString("utf8") ?? "";
+  assert.match(html, /Illustrative sample/u);
+  assert.match(html, /id="sample-assessment"/u);
+  assert.match(html, /id="sample-dashboard"/u);
+  assert.match(html, /not customer results/u);
+  assert.match(html, /href="\/management"/u);
+  assert.doesNotMatch(html, /<script|<form|<input|<iframe|\sstyle=/u);
+  assert.equal(getCustomerAcquisitionAsset("/examples/private-record"), undefined);
+});
+
+test("links public deliverables from the customer journey without advertising fixed prices", () => {
+  for (const path of ["/", "/case-study"]) {
+    const html = getCustomerAcquisitionAsset(path)?.body.toString("utf8") ?? "";
+    assert.match(html, /href="\/examples(?:#[^"]*)?"/u);
+    assert.doesNotMatch(html, /(?:USD|\$)\s*\d/u);
+  }
+  const landing = getCustomerAcquisitionAsset("/")?.body.toString("utf8") ?? "";
+  assert.match(landing, /Pricing is negotiated/u);
+});
+
+test("discloses the operator, privacy request route, and optional provider processing", () => {
+  const html = getCustomerAcquisitionAsset("/security")?.body.toString("utf8") ?? "";
+  assert.match(html, /Valerie Rwamba Munyi trading as NextEdge Analytics/u);
+  assert.match(html, /href="\/#request"/u);
+  assert.match(html, /deletion request/u);
+  assert.match(html, /Cloudflare/u);
+  assert.match(html, /Resend/u);
+  assert.match(html, /OpenAI/u);
+  assert.match(html, /store: false/u);
+  assert.match(html, /does not guarantee zero provider retention/u);
 });

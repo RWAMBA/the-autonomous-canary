@@ -76,3 +76,10 @@ An idle Render free web service can still display its platform wake screen befor
 the server responds. Removing that delay requires always-on hosting; it cannot be
 solved by a stylesheet or client-side timer. Keep the existing server architecture
 and verify a fresh first request after an idle period once hosting is changed.
+
+
+## Mobile case study and public samples
+
+At widths up to 760px, the evidence table and its caption use block layout. The caption spans the available width rather than retaining anonymous table-caption sizing. Scenario, policy result, and evidence status remain stacked with visible labels; desktop table layout is retained.
+
+The mobile header assessment action retains its neutral full-width presentation and at least 44px height. Public sample assessment and dashboard evidence use the existing typography, cards, and table treatment. Samples are synthetic, credential-free, and separate from protected records. Services describe negotiated pricing without amounts. Test metrics identify their revision; historical results remain labeled as historical.

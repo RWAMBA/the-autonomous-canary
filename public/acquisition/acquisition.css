@@ -193,7 +193,8 @@ footer p { margin: 0; }
 
   .case-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
-  .evidence-table, .evidence-table tbody, .evidence-table tr, .evidence-table td { display: block; }
+  .evidence-table, .evidence-table caption, .evidence-table tbody, .evidence-table tr, .evidence-table td { display: block; }
+  .evidence-table caption { width: 100%; }
   .evidence-table thead { position: absolute; left: -10000px; }
   .evidence-table tr { padding-block: .5rem; border-bottom: 1px solid var(--line); }
   .evidence-table td { border: 0; }
@@ -276,3 +277,15 @@ body { overflow-wrap: anywhere; }
 .brand-mark { width: 2.5rem; height: 2.5rem; }
 
 .risk-row > * { min-width: 0; }
+
+/* Public sample evidence uses the same responsive surface as the case study. */
+.sample-notice { max-width: 68ch; margin-top: 1.5rem; padding: 1rem 1.25rem; border: 1px solid var(--control-line); border-radius: .5rem; color: var(--muted); background: var(--canvas); }
+.sample-notice strong { color: var(--ink); }
+.sample-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.sample-summary > div { padding: 1.25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--surface); min-width: 0; }
+.sample-summary dt { color: var(--muted); }
+.sample-summary dd { margin: .5rem 0 0; font-weight: 650; }
+.engagement-note { margin-top: 2rem; }
+@media (max-width: 760px) {
+  .sample-summary { grid-template-columns: 1fr; }
+}
