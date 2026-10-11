@@ -14,8 +14,8 @@
 | 6 | Deployment outcome recorded | Deployment lifecycle API correlates attempt and outcome; production standard continuation evidence is recorded | Production-validated |
 | 7 | Prediction and outcome appear together | Authenticated management report/detail and dashboard expose prediction, decision, strategy, outcome, and directional accuracy | Production-validated |
 | 8 | Evidence report exports | Authenticated repository-scoped `canaryguard-evidence-report-v1` JSON export is tested and exposed | Implemented; production download evidence is Insufficient data to verify |
-| 9 | Second organization onboarded without code changes | A temporary secondary production tenant and ADMIN credential were provisioned through data/config only; cross-tenant access returned 403; test records were then revoked/disabled | Production-validated |
-| 10 | Security, testing, deployment, recovery, and limitations are documented | This case-study package plus the root README cover every required topic and are guarded by repository acceptance tests | Implemented; public deployment pending |
+| 9 | Second organization onboarded without code changes | A temporary secondary production tenant and ADMIN credential were provisioned through data/config only; a historical cross-tenant request returned 403; test records were then revoked/disabled. This records rejection, not validation of the current 404 resource-concealment contract | Production-validated |
+| 10 | Security, testing, deployment, recovery, and limitations are documented | This case-study package plus the root README cover every required topic and are guarded by repository acceptance tests | Published at baseline 92ae5ea66cbc; follow-up deployment pending |
 
 ## Phase 9 completion gate
 
@@ -26,3 +26,8 @@ The implementation is ready for change review when all local verification passes
 3. the expected head is merged;
 4. Render reports the merge SHA at `/version`; and
 5. `/case-study` returns HTTP 200 with the published evidence labels and no exposed credential.
+
+
+## Publication baseline and follow-up
+
+The public case-study page was reviewed at deployed baseline `92ae5ea66cbc04bdc4b561b077252a46bca8fb79`. This follow-up does not upgrade unverified production canary or authenticated export capabilities. Its static `/examples` route contains synthetic sample deliverables, not customer evidence. Current local authorization tests distinguish role denial (403) from ungranted resources (404); the historical 403 observation is retained as historical evidence.

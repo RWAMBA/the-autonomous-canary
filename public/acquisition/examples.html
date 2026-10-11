@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#101113">
+    <meta name="description" content="Illustrative CanaryGuard assessment and release evidence. No credentials or customer records.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="CanaryGuard">
+    <meta property="og:title" content="Sample deliverables — CanaryGuard">
+    <meta property="og:description" content="Illustrative CanaryGuard assessment and release evidence. No credentials or customer records.">
+    <meta property="og:url" content="https://canaryguard.nextedgeanalytics.com/examples">
+    <meta name="twitter:card" content="summary">
+    <title>Sample deliverables — CanaryGuard</title>
+    <link rel="canonical" href="https://canaryguard.nextedgeanalytics.com/examples">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/acquisition.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="CanaryGuard home"><span class="brand-mark" aria-hidden="true">CG</span><span><strong>CanaryGuard</strong><small>Release governance</small></span></a>
+      <nav aria-label="Primary navigation"><a href="/">Home</a><a href="/security">Security</a><a href="/case-study">Case study</a><a href="/licensing">Licensing</a><a class="nav-cta" href="/#request">Request assessment</a></nav>
+    </header>
+    <main id="main">
+      <section class="section problem-band">
+        <p class="eyebrow">Illustrative sample</p>
+        <h1>See what the evidence looks like.</h1>
+        <p class="lede">Explore a sample assessment and release overview before requesting an engagement.</p>
+        <p class="sample-notice"><strong>Synthetic examples, not customer results.</strong> These records are written for demonstration. They do not connect to the protected dashboard, run a review, or execute a deployment. No account or credentials are needed.</p>
+        <div class="case-actions"><a class="button secondary" href="#sample-assessment">Sample assessment</a><a class="button secondary" href="#sample-dashboard">Sample dashboard evidence</a></div>
+      </section>
+      <section id="sample-assessment" class="section services" aria-labelledby="assessment-title">
+        <div class="section-heading"><div><p class="eyebrow">Sample assessment</p><h2 id="assessment-title">A written review with clear next actions.</h2></div><p>Illustrative scope: one GitHub Actions repository and its release workflow. Findings below describe a fictional team.</p></div>
+        <div class="service-grid">
+          <article><span>01</span><h3>Workflow reviewed</h3><p>The team runs tests and a container build, then approves delivery manually. Security evidence and approval notes are reviewed separately.</p></article>
+          <article><span>02</span><h3>Gaps identified</h3><p>Approval notes do not consistently identify the exact commit. Required security evidence and ownership of a rollback decision are not documented.</p></article>
+          <article><span>03</span><h3>Recommended actions</h3><p>Bind review evidence to the head commit, agree mandatory checks and missing-evidence behavior, and document the health thresholds and decision owner.</p></article>
+        </div>
+        <p class="sample-notice">An actual assessment records the agreed scope, evidence examined, prioritized findings, limitations, and review discussion. Integration work requires a separate agreed scope. An evidence package supports review; it is not regulatory certification.</p>
+      </section>
+      <section id="sample-dashboard" class="section demo" aria-labelledby="sample-title">
+        <div class="section-heading"><div><p class="eyebrow">Sample dashboard evidence</p><h2 id="sample-title">Follow a decision through its outcome.</h2></div><p>Static preview of information a release record can expose. These are synthetic records, not a live dashboard session or an API export.</p></div>
+        <dl class="sample-summary"><div><dt>Repository</dt><dd>example-team / sample-service</dd></div><div><dt>Decision authority</dt><dd>Deterministic policy</dd></div><div><dt>Analysis provider</dt><dd>MOCK · no external AI call</dd></div></dl>
+        <table class="evidence-table">
+          <caption>Synthetic release decisions and recorded outcomes</caption>
+          <thead><tr><th scope="col">Scenario</th><th scope="col">Policy decision</th><th scope="col">Recorded outcome</th></tr></thead>
+          <tbody>
+            <tr><td data-label="Scenario">Sample A · complete passing evidence</td><td data-label="Policy decision">CONTINUE · STANDARD</td><td data-label="Recorded outcome">Standard deployment continued</td></tr>
+            <tr><td data-label="Scenario">Sample B · failed tests</td><td data-label="Policy decision">BLOCK · BLOCKED</td><td data-label="Recorded outcome">No deployment permitted</td></tr>
+            <tr><td data-label="Scenario">Sample C · unhealthy canary observation</td><td data-label="Policy decision">ROLLBACK</td><td data-label="Recorded outcome">Rollback outcome recorded</td></tr>
+          </tbody>
+        </table>
+        <p class="sample-notice">A bounded evidence report can connect the repository and commit, review and policy decision, deterministic findings, deployment attempts, and audit events. The authenticated service exports versioned JSON; this preview is a readable summary. Recording a rollback does not itself execute a deployment-provider action.</p>
+        <div class="case-actions"><a class="button secondary" href="/management">Open protected dashboard</a><a class="button primary" href="/#request">Discuss your release workflow</a></div>
+      </section>
+    </main>
+
+    <footer><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">CG</span><strong>CanaryGuard</strong></a><p>© 2026 Valerie Rwamba Munyi. All rights reserved.</p><div class="footer-links"><a href="/licensing">Licensing</a><a href="/case-study">Case study</a></div></footer>
+  </body>
+</html>

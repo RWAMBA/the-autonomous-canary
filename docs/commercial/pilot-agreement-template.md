@@ -26,7 +26,7 @@ The public intake form collects bounded business contact and release-challenge i
 
 ## 6 Fees and payment
 
-The fixed pilot fee is **USD 750**. Customer will pay **50 percent before kickoff and 50 percent on delivery of the closeout report**, unless the order details state another schedule. Fees are non-refundable for work already performed. Any taxes or payment-processing charges payable by Customer will be stated on the invoice or payment request where applicable.
+The negotiated pilot fee, currency, and payment schedule will be recorded in the order details before signature. No fixed public price applies. Fees are non-refundable for work already performed. Any taxes or payment-processing charges payable by Customer will be stated on the invoice or payment request where applicable.
 
 ## 7 Acceptance and success criteria
 
@@ -59,6 +59,8 @@ The parties will state the governing law and dispute forum in the order details 
 - Pilot repository: [owner/name]
 - Technical owner: [Name and email]
 - Installation approver: [Name and email]
+- Negotiated fee and currency: [Insert before signature]
+- Payment schedule: [Insert before signature]
 - Kickoff date: [Insert]
 - Closeout date: [Insert]
 - Governing law and forum: [Insert after legal review]

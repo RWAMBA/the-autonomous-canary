@@ -29,7 +29,7 @@ CanaryGuard does not request or retain source archives, credentials, private key
 
 ## Price
 
-USD 750 fixed for the defined pilot. Taxes and transaction charges, if applicable, are stated before signature. Work outside the written scope requires a separate written quotation.
+Pricing is negotiated with each prospective client after discovery and recorded in the signed order details. Taxes and transaction charges, if applicable, are stated before signature. Work outside the written scope requires a separate written quotation.
 
 ## Success criteria
 

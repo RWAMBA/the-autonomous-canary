@@ -82,6 +82,13 @@ The example is illustrative and deliberately excludes credentials, prompts, raw 
 
 ## Test coverage
 
-The Phase 8 merge gate executed 509 automated tests and passed type-check, test, build, container-stack verification, provider-isolation assertions, migration contracts, security scans, accessibility checks, and deployment revision verification. Phase 9 adds focused HTTP/asset route, deliverable-manifest, completion-ledger, and secret-shape checks. The Phase 9 local suite executes 513 tests; the feature-branch CI result remains the shipping authority.
+The Phase 8 merge gate executed 509 automated tests and passed type-check, test, build, container-stack verification, provider-isolation assertions, migration contracts, security scans, accessibility checks, and deployment revision verification. Phase 9 adds focused HTTP/asset route, deliverable-manifest, completion-ledger, and secret-shape checks. The historical Phase 9 local suite executed 513 tests; the current verification reference below identifies the later baseline and follow-up. Each milestone has its own CI and deployment gates.
 
 Statement/branch/function line-coverage percentages: **Insufficient data to verify**. The project currently reports executable test counts and gate results, not an instrumented coverage percentage.
+
+
+## Current verification reference
+
+The deployed baseline `92ae5ea66cbc04bdc4b561b077252a46bca8fb79` passed 531 tests. The client-readiness patch adds three public-asset regression checks; its local suite passes 534 tests. These are executable test counts, not coverage percentages. Public CI for the patch and post-merge deployment remain separate gates.
+
+The current `PostgresTenantAuthorization` contract returns `403 FORBIDDEN` for a denied role permission and `404 RESOURCE_NOT_FOUND` for an ungranted repository or release. `test/authorization/tenant-authorization.test.ts` verifies those separate paths. Historical production 403 observations above establish rejection only; they must not be described as verification of the current 404 concealment contract. A fresh production cross-tenant probe is not part of this presentation milestone.

@@ -1454,3 +1454,10 @@ The current scope is a public portfolio core and service-delivery foundation, no
 CanaryGuard is proprietary software. Copyright © 2026 Valerie Rwamba Munyi. All rights reserved.
 
 No open-source license is granted. The public repository may be viewed and forked only as permitted by GitHub's Terms of Service; reproduction, distribution, modification, or commercial use requires prior written permission from the copyright holder.
+
+
+## Public engagement and sample evidence
+
+`/examples` serves a static, credential-free sample assessment and release-evidence overview. It does not query customer APIs or execute deployment actions. The authenticated management console links to that preview without changing access controls. `/security#privacy` explains the operator, privacy-request route, retention responsibilities, configured notification providers, and optional OpenAI processing. Public and commercial materials leave fees to negotiation and a signed scope.
+
+The mobile case-study caption uses block layout with its table below 760px. The deployed baseline `92ae5ea66cbc04bdc4b561b077252a46bca8fb79` passed 531 tests; the client-readiness patch adds three tests, for 534 local checks. Historical Phase 8 and Phase 9 counts remain in the evaluation record. Counts are not instrumented coverage percentages. Current role denial is 403; ungranted repository/release concealment is 404.
