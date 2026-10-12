@@ -6,6 +6,10 @@ The current MVP provides secure review, deployment-event, and management-reporti
 
 ## Start here
 
+[Live product](https://canaryguard.nextedgeanalytics.com/) · [Synthetic assessment & dashboard preview](https://canaryguard.nextedgeanalytics.com/examples#sample-dashboard) · [Engineering case study](https://canaryguard.nextedgeanalytics.com/case-study)
+
+The public preview contains synthetic records, requires no credentials and does not execute a deployment.
+
 **Engineering focus:** software development, cybersecurity practices, DevSecOps, and AI-assisted release intelligence, demonstrated through evidence-backed release decisions, signed GitHub integrations, durable deployment history, and security-conscious API design.
 
 **Problem:** a successful build is only one part of release readiness. This project connects change evidence, policy decisions, and rollout observations under a traceable release identity.
